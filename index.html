@@ -85,6 +85,14 @@ summary{cursor:pointer;font-weight:500}
 #status{font-size:14px;margin:0;text-align:center}
 #status.err{color:#de2d29;font-weight:500}
 a{color:var(--accent)}
+body.voteonly aside > :not(header, #voteBox){display:none!important}
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+.strip button{flex:0 0 auto;min-height:0;padding:6px 10px;border-radius:12px;display:flex;flex-direction:column;align-items:center;line-height:18px;font-weight:400}
+.pick{min-height:28px;padding:0 10px;font-size:12px;flex:0 0 auto}
+.opt{display:flex;justify-content:space-between;gap:8px;align-items:center;text-align:left;min-height:52px;border-radius:12px;padding:8px 12px}
+.opt.lead{border-color:var(--accent)}
+.fix{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}
+.fix button{text-align:left;border-radius:12px;min-height:44px;font-weight:400}
 </style>
 </head>
 <body>
@@ -93,6 +101,14 @@ a{color:var(--accent)}
     <h1>Spot Finder</h1>
     <p class="sub">Pubs and restaurants by travel time, rating and vibe</p>
   </header>
+
+  <div id="voteBox" class="deck" hidden>
+    <b>🗳 Group vote</b>
+    <span class="addr">Tap where you want to go. Results update live for everyone with this link. Votes are kept for about 12 hours.</span>
+    <label class="field">Your name <input id="voter" type="text" placeholder="So friends know who voted" maxlength="30"></label>
+    <div id="opts" class="quotes"></div>
+    <div class="row"><button id="shareVote">Share this vote</button><a href="#" id="closeVote">Close</a></div>
+  </div>
 
   <div id="keybox" class="deck" hidden>
     <span>Paste your Google Maps API key. It's saved only on this device.</span>
@@ -144,6 +160,20 @@ a{color:var(--accent)}
     <div class="row"><button class="chip" id="kwOnly">Only places whose reviews mention it</button></div>
   </div>
 
+  <details class="deck" id="matchDeck" data-tab="search">
+    <summary>⚽ Watch a match</summary>
+    <span class="addr">Pick a game and it searches for pubs showing sport near you (and your friend), checking reviews for screens and the teams.</span>
+    <div class="seg" id="league"><button data-v="eng.1" class="on">Premier League</button><button data-v="uefa.champions">Champions L.</button><button data-v="esp.1">La Liga</button><button data-v="ita.1">Serie A</button></div>
+    <div id="fixtures" class="fix"></div>
+  </details>
+
+  <div class="deck" id="wxDeck" data-tab="search" hidden>
+    <b>Weather for outside seating</b>
+    <span id="wxMatch" class="addr" hidden></span>
+    <div id="strip" class="strip"></div>
+    <span id="wxSay"></span>
+  </div>
+
   <div class="kpis" data-tab="search">
     <div class="kpi"><small>Matching</small><b id="kCount">–</b></div>
     <div class="kpi"><small>Avg travel each</small><b id="kTime">–</b></div>
@@ -155,6 +185,11 @@ a{color:var(--accent)}
     <div class="row" id="sort">
       <button data-v="best" class="on">Best</button><button data-v="rating">Rating</button><button data-v="reviews">Reviews</button><button data-v="total">Travel</button><button data-v="fair" id="fairBtn" hidden>Fairness</button><button data-v="mentions" id="mentionsBtn" hidden>Mentions</button>
     </div>
+  </div>
+
+  <div class="deck" id="pickBar" hidden>
+    <span id="pickN"></span>
+    <div class="row"><button id="startVote" class="primary">Start a group vote</button><button id="clearPicks">Clear</button></div>
   </div>
 
   <div id="list"></div>
@@ -199,7 +234,8 @@ const BEST_FIELDS = mask(BASIC); // no reviews/amenities: cheaper Google tier
 const PRIOR_REVIEWS = 200, PRIOR_RATING = 4.0;
 const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
 let KEY, TFL, map, Marker, Pin, results = [], searched = [], shown = [], markers = [], viaTfl = 0;
-let trip, nextToken, lineStatus = {}, best, crawl, line;
+let trip, nextToken, lineStatus = {}, best, crawl, line, wx, wxAt, match;
+const picks = new Map(); // place id -> name, for a group vote
 
 $('amen').innerHTML = AMENITIES.map(([k, n]) => `<button class="chip" data-k="${k}">${n}</button>`).join('');
 
@@ -214,7 +250,7 @@ $('savetfl').onclick = () => {
 $('savekey').onclick = () => { try { localStorage.setItem('gmapsKey', $('key').value.trim()); } catch {} location.reload(); };
 $('resetkey').onclick = e => { e.preventDefault(); try { localStorage.removeItem('gmapsKey'); } catch {} location.reload(); };
 
-if (!KEY) $('keybox').hidden = false;
+if (!KEY) { $('keybox').hidden = false; $('map').hidden = true; document.body.style.display = 'block'; }
 else {
   const s = document.createElement('script');
   s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(KEY)}&v=weekly&loading=async&callback=init`;
@@ -381,6 +417,7 @@ $('go').onclick = () => {
       ...(on($('open')) && {openNow: true})}};
     results = []; searched = active; viaTfl = 0;
     lineStatus = mode === 'TRANSIT' ? await tflStatus() : {};
+    loadWeather(center);
     await addPage();
     document.querySelector('.kpis').scrollIntoView({behavior: 'smooth'});
   });
@@ -443,6 +480,7 @@ function renderBest() {
           <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">${p.score.toFixed(2)}</span>
       </div>
+      <div class="row">${pickBtn(p)}</div>
       <div class="addr">★ ${p.rating.toFixed(1)} from ${p.userRatingCount.toLocaleString()} reviews · ${km(best.center, p.location).toFixed(1)} km from ${best.from}</div>
     </div>`).join('') : '<div class="empty">Nothing found here. Try a bigger area or a different word.</div>';
   status(`Ranked ${best.list.length} places within ${$('area').value} km by trusted score: the rating, weighted by how many reviews back it up.`);
@@ -515,7 +553,7 @@ function refresh() {
   const t = pick('tab');
   document.querySelectorAll('[data-tab]').forEach(el => el.hidden = el.dataset.tab !== t);
   if (t === 'best') { $('crawlDeck').hidden = !best || best.list.length < 3; renderBest(); }
-  else render();
+  else { render(); if (wx) renderWeather(); else $('wxDeck').hidden = true; }
 }
 
 document.querySelectorAll('.seg, #sort').forEach(g => g.onclick = e => {
@@ -537,6 +575,7 @@ $('kw').oninput = refresh;
 $('list').onclick = e => {
   const c = e.target.closest('.card');
   if (!c || e.target.closest('a')) return;
+  if (e.target.closest('.pick')) return togglePick(shown[c.dataset.i].p);
   document.querySelectorAll('.card').forEach(x => x.classList.toggle('sel', x === c));
   map.panTo(shown[c.dataset.i].p.location);
   map.setZoom(16);
@@ -611,7 +650,8 @@ function render() {
           <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags"><span class="tag">Score ${p.score.toFixed(2)}</span>${AMENITIES.filter(([a]) => p[a]).map(([, n]) => `<span class="tag">${n}</span>`).join('')}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="row">${pickBtn(p)}</div>
+      <div class="tags"><span class="tag">Score ${p.score.toFixed(2)}</span>${AMENITIES.filter(([a]) => p[a]).map(([, n]) => `<span class="tag">${n}</span>`).join('')}${p.outdoorSeating && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
         <span class="val">${r.t[j]} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
@@ -622,6 +662,153 @@ function render() {
   const src = viaTfl ? ` Transit times from TfL${viaTfl < results.length * searched.length ? ' (Google where TfL had no route)' : ''}.` : '';
   status(`Found ${results.length} places, ${shown.length} match your filters.${src} Raised the travel time? Search again to look further out.`);
 }
+
+// ---- Weather (Open-Meteo, free, no key) ----
+const hour = t => new Date(t * 1000).toLocaleTimeString([], {hour: 'numeric', hour12: true});
+const wxIcon = i => wx.rain[i] >= 50 ? '🌧' : wx.rain[i] >= 25 ? '🌦' : !wx.day[i] ? '🌙' : wx.cloud[i] < 30 ? '☀️' : wx.cloud[i] < 70 ? '⛅' : '☁️';
+const wxWord = i => wx.rain[i] >= 40 ? 'rain likely' : wx.temp[i] < 10 ? 'chilly' : wx.day[i] && wx.cloud[i] < 50 ? 'sunny' : 'dry';
+const SAY = {'rain likely': 'Rain likely. Better to sit inside.', chilly: 'Dry but chilly. Wrap up if you sit outside.',
+  sunny: 'Sunny: great beer garden weather.', dry: 'Dry. Fine for sitting outside.'};
+
+async function loadWeather(c) {
+  try {
+    const d = await (await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lng}`
+      + '&hourly=temperature_2m,precipitation_probability,cloud_cover,is_day&forecast_days=7&timeformat=unixtime')).json();
+    const h = d.hourly;
+    wx = {time: h.time, temp: h.temperature_2m, rain: h.precipitation_probability, cloud: h.cloud_cover, day: h.is_day};
+    wxAt = nearest(match?.t ?? Date.now() / 1000);
+  } catch { wx = null; }
+  renderWeather(); render();
+}
+const nearest = t => wx.time.reduce((b, x, i) => Math.abs(x - t) < Math.abs(wx.time[b] - t) ? i : b, 0);
+
+function renderWeather() {
+  $('wxDeck').hidden = !wx || pick('tab') !== 'search';
+  if (!wx) return;
+  const now = nearest(Date.now() / 1000), s = Math.max(now, wxAt - 3);
+  $('strip').innerHTML = wx.time.slice(s, s + 24).map((t, k) => { const i = s + k; return `
+    <button data-i="${i}" class="${i === wxAt ? 'on' : ''}"><small>${i === now ? 'Now' : hour(t)}</small><span>${wxIcon(i)}</span>
+      <b>${Math.round(wx.temp[i])}°</b><small>${wx.rain[i]}%</small></button>`; }).join('');
+  $('wxSay').textContent = `${hour(wx.time[wxAt])}: ${Math.round(wx.temp[wxAt])}°C, ${wx.rain[wxAt]}% chance of rain. ${SAY[wxWord(wxAt)]}`;
+  $('wxMatch').hidden = !match;
+  if (match) $('wxMatch').textContent = `Kick-off ${match.when}: ${match.name}`;
+}
+$('strip').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  wxAt = +b.dataset.i;
+  renderWeather(); render();
+};
+
+// ---- Match finder (ESPN's public scoreboard feed, no key) ----
+let fixLeague;
+async function loadFixtures() {
+  const lg = pick('league');
+  if (lg === fixLeague) return;
+  fixLeague = lg;
+  $('fixtures').innerHTML = '<span class="addr">Loading games…</span>';
+  const days = [...Array(8)].map((_, d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10).replace(/-/g, ''));
+  const evs = (await Promise.all(days.map(d => fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${lg}/scoreboard?dates=${d}`)
+    .then(r => r.json()).then(j => j.events || []).catch(() => [])))).flat();
+  const seen = new Set(), games = evs.filter(e => e.status?.type?.state !== 'post' && !seen.has(e.id) && seen.add(e.id))
+    .sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 25);
+  if (lg !== pick('league')) return; // switched league while loading
+  fixtures = games.map(e => {
+    const [h, a] = ['home', 'away'].map(side => e.competitions[0].competitors.find(c => c.homeAway === side).team);
+    const live = e.status.type.state === 'in';
+    return {name: `${h.shortDisplayName} v ${a.shortDisplayName}`, teams: [h.shortDisplayName, a.shortDisplayName], t: new Date(e.date) / 1000,
+      when: live ? 'now (live)' : new Date(e.date).toLocaleString([], {weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})};
+  });
+  $('fixtures').innerHTML = fixtures.length ? fixtures.map((f, i) => `<button data-i="${i}"><b>${esc(f.name)}</b><br><small>${esc(f.when)}</small></button>`).join('')
+    : '<span class="addr">No games in the next week.</span>';
+}
+let fixtures = [];
+$('matchDeck').ontoggle = () => $('matchDeck').open && loadFixtures();
+$('league').addEventListener('click', () => loadFixtures());
+$('fixtures').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  match = fixtures[b.dataset.i];
+  $('q').value = 'pub showing football';
+  document.querySelector('[data-k=goodForWatchingSports]').classList.add('on');
+  $('kw').value = [...match.teams, 'screen', 'football'].join(', ');
+  if (match.t * 1000 - Date.now() > 3 * 3600e3) $('open').classList.remove('on'); // "open now" is meaningless for a game days away
+  $('go').click();
+};
+
+// ---- Group vote: options travel in the link, votes go through ntfy.sh (free, no account, kept ~12h) ----
+const pickBtn = p => `<button class="pick ${picks.has(p.id) ? 'on' : ''}">${picks.has(p.id) ? '✓ In the vote' : '+ Add to vote'}</button>`;
+function togglePick(p) {
+  if (picks.has(p.id)) picks.delete(p.id);
+  else if (picks.size >= 8) return status('A vote can have up to 8 places.', true);
+  else picks.set(p.id, p.displayName);
+  $('pickBar').hidden = !picks.size;
+  $('pickN').textContent = `${picks.size} place${picks.size > 1 ? 's' : ''} picked for a group vote${picks.size < 2 ? '. Add at least one more.' : '.'}`;
+  $('startVote').disabled = picks.size < 2;
+  refresh();
+}
+$('clearPicks').onclick = () => { picks.clear(); $('pickBar').hidden = true; refresh(); };
+$('startVote').onclick = () => {
+  const topic = 'spotvote-' + [...crypto.getRandomValues(new Uint8Array(12))].map(b => (b % 36).toString(36)).join('');
+  location.hash = `vote=${topic}&o=${encodeURIComponent(JSON.stringify([...picks]))}`;
+  shareVote();
+};
+async function shareVote() {
+  const url = location.href;
+  try { await navigator.share({title: 'Where should we go?', text: 'Vote where we go:', url}); return; } catch (e) { if (e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(url); status('Vote link copied. Paste it in your group chat.'); }
+  catch { prompt('Copy this link and send it to your friends:', url); }
+}
+$('shareVote').onclick = shareVote;
+$('closeVote').onclick = e => { e.preventDefault(); history.replaceState(null, '', location.pathname); openVote(); };
+
+let es, votes;
+try { $('voter').value = localStorage.getItem('voterName') || ''; } catch {}
+$('voter').onchange = () => { try { localStorage.setItem('voterName', $('voter').value.trim()); } catch {} };
+
+function openVote() {
+  es?.close(); es = null;
+  const h = new URLSearchParams(location.hash.slice(1)), topic = h.get('vote');
+  let opts;
+  try { opts = JSON.parse(h.get('o')).filter(o => Array.isArray(o) && o.length === 2).slice(0, 8).map(([id, n]) => [String(id), String(n)]); } catch {}
+  $('voteBox').hidden = !(topic && /^spotvote-[a-z0-9]{8,32}$/.test(topic) && opts?.length);
+  document.body.classList.toggle('voteonly', !KEY && !$('voteBox').hidden); // friends without a key only need the vote
+  if ($('voteBox').hidden) return;
+  votes = new Map(); // ntfy message id -> {v, c}
+  const draw = () => {
+    const last = new Map(); // newest vote per person wins
+    [...votes.values()].forEach(x => last.set(x.v.toLowerCase(), x));
+    const by = opts.map(() => []);
+    last.forEach(x => by[x.c]?.push(x.v));
+    const top = Math.max(1, ...by.map(b => b.length)), me = $('voter').value.trim().toLowerCase();
+    $('opts').innerHTML = opts.map(([id, n], i) => `
+      <button class="opt ${by[i].length === top ? 'lead' : ''} ${last.get(me)?.c === i ? 'on' : ''}" data-i="${i}">
+        <span><b>${esc(n)}</b><br><small>${by[i].length ? esc(by[i].join(', ')) : 'No votes yet'}</small>
+        <br><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(n)}&query_place_id=${encodeURIComponent(id)}" target="_blank" rel="noopener">Open in Google Maps</a></span>
+        <span class="badge">${by[i].length}</span></button>`).join('');
+  };
+  draw();
+  es = new EventSource(`https://ntfy.sh/${topic}/sse?since=all`);
+  es.onmessage = e => {
+    try {
+      const m = JSON.parse(e.data), x = JSON.parse(m.message);
+      if (Number.isInteger(x.c) && x.c >= 0 && x.c < opts.length && typeof x.v === 'string' && x.v.trim())
+        { votes.set(m.id, {v: x.v.trim().slice(0, 30), c: x.c}); draw(); }
+    } catch {}
+  };
+  $('opts').onclick = async e => {
+    const b = e.target.closest('.opt');
+    if (!b || e.target.closest('a')) return;
+    const v = $('voter').value.trim();
+    if (!v) { $('voter').focus(); return status('Add your name first, so friends know who voted.', true); }
+    $('voter').onchange();
+    await fetch(`https://ntfy.sh/${topic}`, {method: 'POST', body: JSON.stringify({v, c: +b.dataset.i})})
+      .catch(() => status('Could not send your vote. Check your connection.', true));
+  };
+  $('voteBox').scrollIntoView({behavior: 'smooth'});
+}
+window.onhashchange = openVote;
+openVote();
 
 function status(t, err) { $('status').textContent = t; $('status').classList.toggle('err', !!err); }
 refresh();
