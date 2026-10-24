@@ -66,6 +66,8 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .bars{background:var(--surface-dim);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:13px}
 .track{height:6px;background:var(--on-low);border-radius:999px;overflow:hidden}
 .fill{height:100%;border-radius:999px}
+.route{grid-column:1/-1;font-size:12px;line-height:16px;color:var(--on-variant);margin:-2px 0 4px}
+summary{cursor:pointer;font-weight:500}
 .empty{padding:20px;text-align:center;background:var(--surface-dim);border-radius:12px;color:var(--on-variant)}
 #status{font-size:14px;margin:0;text-align:center}
 #status.err{color:#de2d29;font-weight:500}
@@ -126,7 +128,13 @@ a{color:var(--accent)}
   </div>
 
   <div id="list"></div>
-  <small><a href="#" id="resetkey">Change API key</a></small>
+  <details class="deck">
+    <summary>Settings</summary>
+    <label class="field">TfL API key (optional). Transit times in London come from TfL's Journey Planner; a key lets it handle more searches.
+      <input id="tflkey" type="text" placeholder="Paste your TfL app key" autocomplete="off"></label>
+    <button id="savetfl">Save TfL key</button>
+    <a href="#" id="resetkey">Change Google API key</a>
+  </details>
 </aside>
 <div id="map"></div>
 
@@ -139,9 +147,16 @@ const SPEED_KMH = {WALK: 5, BICYCLE: 15, TRANSIT: 20, DRIVE: 30}; // only sizes 
 const FIELDS = ['displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount',
   'hasOutdoorSeating', 'isGoodForWatchingSports', 'googleMapsURI'];
 const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
-let KEY, map, Place, Marker, Pin, results = [], searched = [], shown = [], markers = [];
+let KEY, TFL, map, Place, Marker, Pin, results = [], searched = [], shown = [], markers = [], viaTfl = 0;
 
-try { KEY = localStorage.getItem('gmapsKey'); } catch {}
+try { KEY = localStorage.getItem('gmapsKey'); TFL = localStorage.getItem('tflKey'); } catch {}
+if (TFL) $('tflkey').placeholder = 'Saved ✓ (paste a new one to replace)';
+$('savetfl').onclick = () => {
+  TFL = $('tflkey').value.trim();
+  try { localStorage.setItem('tflKey', TFL); } catch {}
+  $('tflkey').value = '';
+  $('tflkey').placeholder = TFL ? 'Saved ✓ (paste a new one to replace)' : 'Paste your TfL app key';
+};
 $('savekey').onclick = () => { try { localStorage.setItem('gmapsKey', $('key').value.trim()); } catch {} location.reload(); };
 $('resetkey').onclick = e => { e.preventDefault(); try { localStorage.removeItem('gmapsKey'); } catch {} location.reload(); };
 
@@ -182,6 +197,19 @@ async function resolveOrigin(i) {
 
 const wp = ll => ({waypoint: {location: {latLng: {latitude: ll.lat, longitude: ll.lng}}}});
 
+// Fastest TfL journey right now, or null (outside London, rate limited, no route)
+async function tflJourney(a, b) {
+  try {
+    const res = await fetch(`https://api.tfl.gov.uk/Journey/JourneyResults/${a.lat},${a.lng}/to/${b.lat},${b.lng}` + (TFL ? `?app_key=${encodeURIComponent(TFL)}` : ''));
+    if (!res.ok) return null;
+    const j = (await res.json()).journeys?.reduce((x, y) => y.duration < x.duration ? y : x);
+    if (!j) return null;
+    const lines = j.legs.filter(l => l.mode.name !== 'walking')
+      .map(l => (l.mode.name === 'bus' ? 'Bus ' : '') + (l.routeOptions?.[0]?.name || l.mode.name));
+    return {mins: j.duration, route: lines.join(' → ') || 'Walk'};
+  } catch { return null; }
+}
+
 $('go').onclick = async () => {
   if (!map) return status('Map not loaded yet. Check your API key.', true);
   $('go').disabled = true;
@@ -203,6 +231,7 @@ $('go').onclick = async () => {
       isOpenNow: on($('open')) || undefined});
     results = places.map(p => ({p, t: pts.map(() => null)}));
     searched = active;
+    viaTfl = 0;
 
     if (places.length) {
       status('Calculating travel times…');
@@ -218,6 +247,15 @@ $('go').onclick = async () => {
       // proto3 JSON omits zero values, hence ?? 0
       for (const r of rows) if (r.condition === 'ROUTE_EXISTS')
         results[r.destinationIndex ?? 0].t[r.originIndex ?? 0] = Math.round((parseInt(r.duration) || 0) / 60);
+
+      // TfL overrides Google's transit times wherever it finds a journey
+      if (mode === 'TRANSIT') {
+        status('Checking TfL Journey Planner…');
+        await Promise.all(results.flatMap(r => pts.map(async (pt, i) => {
+          const j = await tflJourney(pt, r.p.location.toJSON());
+          if (j) { r.t[i] = j.mins; (r.route ??= [])[i] = j.route; viaTfl++; }
+        })));
+      }
 
       const b = new google.maps.LatLngBounds();
       [...pts, ...places.map(p => p.location)].forEach(p => b.extend(p));
@@ -289,10 +327,11 @@ function render() {
       <div class="tags">${r.p.isGoodForWatchingSports ? '<span class="tag">Sports on TV</span>' : ''}${r.p.hasOutdoorSeating ? '<span class="tag">Outdoor seating</span>' : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
-        <span class="val">${r.t[j]} min</span>`).join('')}</div>
+        <span class="val">${r.t[j]} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
     </div>`).join('')
     : '<div class="empty">Nothing matches. Try a longer travel time or a lower rating.</div>';
-  status(`Found ${results.length} places, ${shown.length} match your filters. Raised the travel time? Search again to look further out.`);
+  const src = viaTfl ? ` Transit times from TfL${viaTfl < results.length * searched.length ? ' (Google where TfL had no route)' : ''}.` : '';
+  status(`Found ${results.length} places, ${shown.length} match your filters.${src} Raised the travel time? Search again to look further out.`);
 }
 
 function status(t, err) { $('status').textContent = t; $('status').classList.toggle('err', !!err); }
