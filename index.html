@@ -67,7 +67,8 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .track{height:6px;background:var(--on-low);border-radius:999px;overflow:hidden}
 .fill{height:100%;border-radius:999px}
 .empty{padding:20px;text-align:center;background:var(--surface-dim);border-radius:12px;color:var(--on-variant)}
-#status{color:var(--on-variant);font-size:13px;margin:0}
+#status{font-size:14px;margin:0;text-align:center}
+#status.err{color:#de2d29;font-weight:500}
 a{color:var(--accent)}
 </style>
 </head>
@@ -95,6 +96,7 @@ a{color:var(--accent)}
     </div>
     <div class="row"><button class="chip" id="open">Open now</button></div>
     <button id="go" class="primary">Search</button>
+    <p id="status">Add a starting point, then Search.</p>
   </div>
 
   <div class="deck">
@@ -123,7 +125,6 @@ a{color:var(--accent)}
     </div>
   </div>
 
-  <p id="status">Add a starting point, then Search.</p>
   <div id="list"></div>
   <small><a href="#" id="resetkey">Change API key</a></small>
 </aside>
@@ -151,7 +152,7 @@ else {
   document.head.append(s);
 }
 
-window.gm_authFailure = () => status(`Google rejected your key on this website. In Google Cloud → Credentials, allow ${location.origin}/* for the key (or remove the website restriction).`);
+window.gm_authFailure = () => status(`Google rejected your key on this website. In Google Cloud → Credentials, allow ${location.origin}/* for the key (or remove the website restriction).`, true);
 
 window.init = async () => {
   const {Map} = await google.maps.importLibrary('maps');
@@ -182,13 +183,15 @@ async function resolveOrigin(i) {
 const wp = ll => ({waypoint: {location: {latLng: {latitude: ll.lat, longitude: ll.lng}}}});
 
 $('go').onclick = async () => {
-  if (!map) return status('Map not loaded yet. Check your API key.');
+  if (!map) return status('Map not loaded yet. Check your API key.', true);
+  $('go').disabled = true;
+  $('go').textContent = 'Searching…';
   try {
     status('Finding start points…');
     await resolveOrigin(0);
     await resolveOrigin(1);
     const active = origins.filter(o => o.ll);
-    if (!active.length) return status('Add a starting point (type an address or tap the map).');
+    if (!active.length) return status('Add a starting point first: type an address or tap the map.', true);
     const pts = active.map(o => o.ll);
     const center = {lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length};
     const mode = pick('mode');
@@ -221,7 +224,9 @@ $('go').onclick = async () => {
       map.fitBounds(b, 40);
     }
     render();
-  } catch (e) { status('Error: ' + e.message); }
+    document.querySelector('.kpis').scrollIntoView({behavior: 'smooth'});
+  } catch (e) { status('Error: ' + e.message, true); }
+  finally { $('go').disabled = false; $('go').textContent = 'Search'; }
 };
 
 document.querySelectorAll('.seg, #sort').forEach(g => g.onclick = e => {
@@ -287,10 +292,10 @@ function render() {
         <span class="val">${r.t[j]} min</span>`).join('')}</div>
     </div>`).join('')
     : '<div class="empty">Nothing matches. Try a longer travel time or a lower rating.</div>';
-  status(`Tap a card to see it on the map. Raised the travel time? Search again to look further out.`);
+  status(`Found ${results.length} places, ${shown.length} match your filters. Raised the travel time? Search again to look further out.`);
 }
 
-function status(t) { $('status').textContent = t; }
+function status(t, err) { $('status').textContent = t; $('status').classList.toggle('err', !!err); }
 render();
 </script>
 </body>
