@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spot Finder</title>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@300..700&family=Google+Sans+Code:wght@400..500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --surface:#fdfcfc;--surface-dim:#f2f0f0;--surface-bright:#fff;--surface-high:#e6e6e6;
+  --on-surface:#000;--on-variant:rgba(0,0,0,.55);--on-low:rgba(0,0,0,.08);
+  --accent:#3186ff;--accent-container:#dcf1ff;--stroke:#e3e3e3;--outline:#727676;
+  --sans:'Google Sans Flex','Google Sans',system-ui,sans-serif;--mono:'Google Sans Code',ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --surface:#0f0f0f;--surface-dim:#141414;--surface-bright:#1c1c1c;--surface-high:#262626;
+  --on-surface:#e0e0e0;--on-variant:rgba(255,255,255,.55);--on-low:rgba(255,255,255,.12);
+  --accent:#9dd2ff;--accent-container:#192967;--stroke:#2d2f38;--outline:#9a9b9c;
+}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/20px var(--sans);background:var(--surface);color:var(--on-surface);display:grid;grid-template-columns:420px 1fr;-webkit-font-smoothing:antialiased}
+aside{height:100vh;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+#map{height:100vh}
+@media (max-width:760px){
+  body{grid-template-columns:1fr}
+  #map{height:40vh;grid-row:1;position:sticky;top:0;z-index:1}
+  aside{height:auto;overflow:visible}
+}
+h1{margin:0;font-size:24px;line-height:28px;font-weight:500}
+.sub{margin:4px 0 0;color:var(--on-variant);font-size:13px}
+.deck{background:var(--surface-dim);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--on-variant)}
+input[type=text]{min-height:44px;padding:0 14px;font:15px var(--sans);color:var(--on-surface);background:var(--surface-bright);border:1px solid var(--stroke);border-radius:14px;outline:none}
+input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-container)}
+input[type=range]{width:100%;accent-color:var(--accent);margin:4px 0 0}
+button{font:500 13px var(--sans);border-radius:999px;border:1px solid var(--stroke);background:var(--surface-bright);color:var(--on-surface);min-height:36px;padding:0 16px;cursor:pointer}
+button:hover{background:var(--surface-high)}
+button.on{background:var(--accent-container);color:var(--accent);border-color:transparent}
+.primary{background:var(--accent);color:var(--surface);border:0;min-height:44px;font-size:15px}
+.primary:hover{background:var(--accent);opacity:.9}
+.seg{display:flex;background:var(--surface-high);padding:4px;border-radius:999px;gap:4px}
+.seg button{flex:1;border:0;background:transparent;color:var(--on-variant);min-height:32px;padding:0 8px}
+.seg button.on{background:var(--surface-bright);color:var(--on-surface);box-shadow:0 0 12px rgba(0,0,0,.1)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.top{display:flex;justify-content:space-between}
+.val{font-family:var(--mono);font-size:13px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kpi{background:var(--surface-dim);border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;min-width:0}
+.kpi small{color:var(--on-variant);font-size:12px}
+.kpi b{font-size:18px;line-height:24px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#list{display:flex;flex-direction:column;gap:8px}
+.card{background:var(--surface-bright);border:1px solid var(--stroke);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;cursor:pointer}
+.card:hover{border-color:var(--outline)}
+.card.sel{border-color:var(--accent)}
+.card-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.card-top a{font-weight:600;color:var(--on-surface);text-decoration:none}
+.card-top a:hover{text-decoration:underline}
+.addr{color:var(--on-variant);font-size:13px}
+.badge{background:var(--accent-container);color:var(--accent);border-radius:999px;padding:2px 8px;font-weight:600;font-size:13px;white-space:nowrap}
+.badge small{font-weight:400;opacity:.8}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tags:empty{display:none}
+.tag{font-size:12px;line-height:16px;padding:2px 6px;border-radius:8px;background:var(--surface-dim);color:var(--on-variant)}
+.bars{background:var(--surface-dim);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:13px}
+.track{height:6px;background:var(--on-low);border-radius:999px;overflow:hidden}
+.fill{height:100%;border-radius:999px}
+.empty{padding:20px;text-align:center;background:var(--surface-dim);border-radius:12px;color:var(--on-variant)}
+#status{color:var(--on-variant);font-size:13px;margin:0}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<aside>
+  <header>
+    <h1>Spot Finder</h1>
+    <p class="sub">Pubs and restaurants by travel time, rating and vibe</p>
+  </header>
+
+  <div id="keybox" class="deck" hidden>
+    <span>Paste your Google Maps API key. It's saved only on this device.</span>
+    <input id="key" type="text" placeholder="AIza…" autocomplete="off">
+    <button id="savekey" class="primary">Save key</button>
+  </div>
+
+  <div class="deck">
+    <label class="field">Looking for <input id="q" type="text" value="pub"></label>
+    <label class="field"><span><span class="dot" style="background:#2575fc"></span>You start from</span>
+      <input id="from0" type="text" placeholder="Address, or tap the map"></label>
+    <label class="field"><span><span class="dot" style="background:#c84288"></span>Friend starts from (optional)</span>
+      <input id="from1" type="text" placeholder="Leave empty if it's just you"></label>
+    <div class="seg" id="mode">
+      <button data-v="TRANSIT" class="on">Transit</button><button data-v="WALK">Walk</button><button data-v="BICYCLE">Bike</button><button data-v="DRIVE">Car</button>
+    </div>
+    <div class="row"><button class="chip" id="open">Open now</button></div>
+    <button id="go" class="primary">Search</button>
+  </div>
+
+  <div class="deck">
+    <div><div class="top"><span>Max travel time</span><span class="val" id="timeV"></span></div>
+      <input id="time" type="range" min="5" max="60" step="5" value="25"></div>
+    <div><div class="top"><span>Min rating</span><span class="val" id="ratingV"></span></div>
+      <input id="rating" type="range" min="0" max="5" step="0.1" value="4.2"></div>
+    <div><div class="top"><span>Min reviews</span><span class="val" id="reviewsV"></span></div>
+      <input id="reviews" type="range" min="0" max="2000" step="50" value="100"></div>
+    <div class="row">
+      <button class="chip" data-k="goodForWatchingSports">Sports on TV</button>
+      <button class="chip" data-k="outdoorSeating">Outdoor seating</button>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><small>Matching</small><b id="kCount">–</b></div>
+    <div class="kpi"><small>Avg travel each</small><b id="kTime">–</b></div>
+    <div class="kpi"><small>Top match</small><b id="kTop">–</b></div>
+  </div>
+
+  <div class="row">
+    <b style="margin-right:auto">Sort</b>
+    <div class="row" id="sort">
+      <button data-v="rating" class="on">Rating</button><button data-v="reviews">Reviews</button><button data-v="total">Travel</button><button data-v="fair" id="fairBtn" hidden>Fairness</button>
+    </div>
+  </div>
+
+  <p id="status">Add a starting point, then Search.</p>
+  <div id="list"></div>
+  <small><a href="#" id="resetkey">Change API key</a></small>
+</aside>
+<div id="map"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const on = el => el.classList.contains('on');
+const pick = id => document.querySelector(`#${id} .on`).dataset.v;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const SPEED_KMH = {WALK: 5, BICYCLE: 15, TRANSIT: 20, DRIVE: 30}; // only sizes the search area
+const FIELDS = ['displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount',
+  'outdoorSeating', 'goodForWatchingSports', 'googleMapsURI'];
+const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
+let KEY, map, Place, Marker, Pin, results = [], searched = [], shown = [], markers = [];
+
+try { KEY = localStorage.getItem('gmapsKey'); } catch {}
+$('savekey').onclick = () => { try { localStorage.setItem('gmapsKey', $('key').value.trim()); } catch {} location.reload(); };
+$('resetkey').onclick = e => { e.preventDefault(); try { localStorage.removeItem('gmapsKey'); } catch {} location.reload(); };
+
+if (!KEY) $('keybox').hidden = false;
+else {
+  const s = document.createElement('script');
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(KEY)}&v=weekly&loading=async&callback=init`;
+  document.head.append(s);
+}
+
+window.gm_authFailure = () => status(`Google rejected your key on this website. In Google Cloud → Credentials, allow ${location.origin}/* for the key (or remove the website restriction).`);
+
+window.init = async () => {
+  const {Map} = await google.maps.importLibrary('maps');
+  ({Place} = await google.maps.importLibrary('places'));
+  ({AdvancedMarkerElement: Marker, PinElement: Pin} = await google.maps.importLibrary('marker'));
+  map = new Map($('map'), {center: {lat: 51.5246, lng: -0.1605}, zoom: 13, mapId: 'DEMO_MAP_ID', disableDefaultUI: true, zoomControl: true});
+  map.addListener('click', e => setOrigin(0, e.latLng.toJSON(), '(map pin)'));
+  navigator.geolocation?.getCurrentPosition(p => origins[0].ll || setOrigin(0, {lat: p.coords.latitude, lng: p.coords.longitude}, '(your location)'));
+};
+
+function setOrigin(i, ll, label) {
+  const o = origins[i];
+  o.ll = ll; o.label = label; $('from' + i).value = label;
+  if (o.marker) o.marker.map = null;
+  o.marker = new Marker({map, position: ll, title: o.name,
+    content: new Pin({background: o.color, borderColor: '#fff', glyphColor: '#fff'}).element});
+}
+
+async function resolveOrigin(i) {
+  const o = origins[i], text = $('from' + i).value.trim();
+  if (!text) { if (o.marker) o.marker.map = null; delete o.ll; delete o.label; return; }
+  if (text === o.label) return;
+  const {places} = await Place.searchByText({textQuery: text, fields: ['location'], maxResultCount: 1});
+  if (!places.length) throw new Error(`couldn't find "${text}"`);
+  setOrigin(i, places[0].location.toJSON(), text);
+}
+
+const wp = ll => ({waypoint: {location: {latLng: {latitude: ll.lat, longitude: ll.lng}}}});
+
+$('go').onclick = async () => {
+  if (!map) return status('Map not loaded yet. Check your API key.');
+  try {
+    status('Finding start points…');
+    await resolveOrigin(0);
+    await resolveOrigin(1);
+    const active = origins.filter(o => o.ll);
+    if (!active.length) return status('Add a starting point (type an address or tap the map).');
+    const pts = active.map(o => o.ll);
+    const center = {lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length};
+    const mode = pick('mode');
+
+    status('Searching places…');
+    // ponytail: Text Search caps at 20 results; page with nextPageToken if 20 isn't enough
+    const {places} = await Place.searchByText({textQuery: $('q').value, fields: FIELDS, maxResultCount: 20,
+      locationBias: {center, radius: Math.min(50000, SPEED_KMH[mode] * 1000 / 60 * $('time').value)},
+      isOpenNow: on($('open')) || undefined});
+    results = places.map(p => ({p, t: pts.map(() => null)}));
+    searched = active;
+
+    if (places.length) {
+      status('Calculating travel times…');
+      const res = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY,
+          'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,condition'},
+        body: JSON.stringify({origins: pts.map(wp), destinations: places.map(p => wp(p.location.toJSON())), travelMode: mode}),
+      });
+      const rows = await res.json();
+      const err = (Array.isArray(rows) ? rows[0] : rows)?.error;
+      if (err) throw new Error(err.message);
+      // proto3 JSON omits zero values, hence ?? 0
+      for (const r of rows) if (r.condition === 'ROUTE_EXISTS')
+        results[r.destinationIndex ?? 0].t[r.originIndex ?? 0] = Math.round((parseInt(r.duration) || 0) / 60);
+
+      const b = new google.maps.LatLngBounds();
+      [...pts, ...places.map(p => p.location)].forEach(p => b.extend(p));
+      map.fitBounds(b, 40);
+    }
+    render();
+  } catch (e) { status('Error: ' + e.message); }
+};
+
+document.querySelectorAll('.seg, #sort').forEach(g => g.onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  g.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  render();
+});
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => { c.classList.toggle('on'); render(); });
+document.querySelectorAll('input[type=range]').forEach(r => r.oninput = render);
+
+$('list').onclick = e => {
+  const c = e.target.closest('.card');
+  if (!c || e.target.closest('a')) return;
+  document.querySelectorAll('.card').forEach(x => x.classList.toggle('sel', x === c));
+  map.panTo(shown[c.dataset.i].p.location);
+  map.setZoom(16);
+};
+
+const SORT = {
+  rating: r => -(r.p.rating ?? 0) * 1e5 - (r.p.userRatingCount ?? 0),
+  reviews: r => -(r.p.userRatingCount ?? 0),
+  total: r => r.total,
+  fair: r => r.fair * 1000 + r.total,
+};
+
+function render() {
+  $('timeV').textContent = $('time').value + ' min';
+  $('ratingV').textContent = (+$('rating').value).toFixed(1) + ' ★';
+  $('reviewsV').textContent = $('reviews').value;
+  $('fairBtn').hidden = searched.length < 2;
+  if (!searched.length) return;
+
+  const need = [...document.querySelectorAll('.chip.on[data-k]')].map(c => c.dataset.k);
+  shown = results.filter(({p, t}) => t.every(x => x != null && x <= +$('time').value)
+    && (p.rating ?? 0) >= +$('rating').value
+    && (p.userRatingCount ?? 0) >= +$('reviews').value
+    && need.every(k => p[k]));
+  shown.forEach(r => { r.total = r.t.reduce((a, b) => a + b, 0); r.fair = Math.max(...r.t) - Math.min(...r.t); });
+  const k = searched.length < 2 && pick('sort') === 'fair' ? 'rating' : pick('sort');
+  shown.sort((a, b) => SORT[k](a) - SORT[k](b) || a.total - b.total);
+
+  const best = [...shown].sort((a, b) => SORT.rating(a) - SORT.rating(b))[0];
+  $('kCount').textContent = `${shown.length} / ${results.length}`;
+  $('kTime').textContent = shown.length ? Math.round(shown.reduce((s, r) => s + r.total, 0) / shown.length / searched.length) + ' min' : '–';
+  $('kTop').textContent = best ? best.p.displayName : '–';
+
+  markers.forEach(m => m.map = null);
+  markers = shown.map((r, i) => new Marker({map, position: r.p.location, title: r.p.displayName,
+    content: new Pin({glyph: String(i + 1)}).element}));
+
+  const maxBar = Math.max(1, ...shown.flatMap(r => r.t));
+  $('list').innerHTML = shown.length ? shown.map((r, i) => `
+    <div class="card" data-i="${i}">
+      <div class="card-top">
+        <div><a href="${esc(r.p.googleMapsURI)}" target="_blank" rel="noopener">${i + 1}. ${esc(r.p.displayName)}</a>
+          <div class="addr">${esc(r.p.formattedAddress)}</div></div>
+        <span class="badge">★ ${r.p.rating?.toFixed(1) ?? '–'} <small>(${r.p.userRatingCount ?? 0})</small></span>
+      </div>
+      <div class="tags">${r.p.goodForWatchingSports ? '<span class="tag">Sports on TV</span>' : ''}${r.p.outdoorSeating ? '<span class="tag">Outdoor seating</span>' : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
+        <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
+        <span class="val">${r.t[j]} min</span>`).join('')}</div>
+    </div>`).join('')
+    : '<div class="empty">Nothing matches. Try a longer travel time or a lower rating.</div>';
+  status(`Tap a card to see it on the map. Raised the travel time? Search again to look further out.`);
+}
+
+function status(t) { $('status').textContent = t; }
+render();
+</script>
+</body>
+</html>
