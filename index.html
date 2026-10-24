@@ -10,12 +10,14 @@
   --surface:#fdfcfc;--surface-dim:#f2f0f0;--surface-bright:#fff;--surface-high:#e6e6e6;
   --on-surface:#000;--on-variant:rgba(0,0,0,.55);--on-low:rgba(0,0,0,.08);
   --accent:#3186ff;--accent-container:#dcf1ff;--stroke:#e3e3e3;--outline:#727676;
+  --warn-bg:#fff1dc;--warn-fg:#8a4b00;
   --sans:'Google Sans Flex','Google Sans',system-ui,sans-serif;--mono:'Google Sans Code',ui-monospace,monospace;
 }
 @media (prefers-color-scheme:dark){:root{
   --surface:#0f0f0f;--surface-dim:#141414;--surface-bright:#1c1c1c;--surface-high:#262626;
   --on-surface:#e0e0e0;--on-variant:rgba(255,255,255,.55);--on-low:rgba(255,255,255,.12);
   --accent:#9dd2ff;--accent-container:#192967;--stroke:#2d2f38;--outline:#9a9b9c;
+  --warn-bg:#3a2a10;--warn-fg:#ffc46b;
 }}
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -63,10 +65,16 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .tags{display:flex;flex-wrap:wrap;gap:6px}
 .tags:empty{display:none}
 .tag{font-size:12px;line-height:16px;padding:2px 6px;border-radius:8px;background:var(--surface-dim);color:var(--on-variant)}
+.warn{font-size:12px;line-height:16px;padding:4px 8px;border-radius:8px;background:var(--warn-bg);color:var(--warn-fg)}
 .bars{background:var(--surface-dim);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:13px}
 .track{height:6px;background:var(--on-low);border-radius:999px;overflow:hidden}
 .fill{height:100%;border-radius:999px}
 .route{grid-column:1/-1;font-size:12px;line-height:16px;color:var(--on-variant);margin:-2px 0 4px}
+.quotes{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.quotes small{color:var(--on-variant)}
+blockquote{margin:0;padding-left:10px;border-left:3px solid var(--accent-container)}
+cite{font-style:normal;color:var(--on-variant);font-size:12px}
+mark{background:var(--accent-container);color:inherit;border-radius:3px;padding:0 2px}
 summary{cursor:pointer;font-weight:500}
 .empty{padding:20px;text-align:center;background:var(--surface-dim);border-radius:12px;color:var(--on-variant)}
 #status{font-size:14px;margin:0;text-align:center}
@@ -108,10 +116,15 @@ a{color:var(--accent)}
       <input id="rating" type="range" min="0" max="5" step="0.1" value="4.2"></div>
     <div><div class="top"><span>Min reviews</span><span class="val" id="reviewsV"></span></div>
       <input id="reviews" type="range" min="0" max="2000" step="50" value="100"></div>
-    <div class="row">
-      <button class="chip" data-k="isGoodForWatchingSports">Sports on TV</button>
-      <button class="chip" data-k="hasOutdoorSeating">Outdoor seating</button>
+    <div class="field">Max price
+      <div class="seg" id="price">
+        <button data-v="9" class="on">Any</button><button data-v="1">£</button><button data-v="2">££</button><button data-v="3">£££</button>
+      </div>
     </div>
+    <div class="row" id="amen"></div>
+    <label class="field">Reviews mention (comma-separated)
+      <input id="kw" type="text" placeholder="e.g. screens, projector, wings"></label>
+    <div class="row"><button class="chip" id="kwOnly">Only places whose reviews mention it</button></div>
   </div>
 
   <div class="kpis">
@@ -123,11 +136,12 @@ a{color:var(--accent)}
   <div class="row">
     <b style="margin-right:auto">Sort</b>
     <div class="row" id="sort">
-      <button data-v="rating" class="on">Rating</button><button data-v="reviews">Reviews</button><button data-v="total">Travel</button><button data-v="fair" id="fairBtn" hidden>Fairness</button>
+      <button data-v="rating" class="on">Rating</button><button data-v="reviews">Reviews</button><button data-v="total">Travel</button><button data-v="fair" id="fairBtn" hidden>Fairness</button><button data-v="mentions" id="mentionsBtn" hidden>Mentions</button>
     </div>
   </div>
 
   <div id="list"></div>
+  <button id="more" hidden>Show 20 more places</button>
   <details class="deck">
     <summary>Settings</summary>
     <label class="field">TfL API key (optional). Transit times in London come from TfL's Journey Planner; a key lets it handle more searches.
@@ -143,11 +157,19 @@ const $ = id => document.getElementById(id);
 const on = el => el.classList.contains('on');
 const pick = id => document.querySelector(`#${id} .on`).dataset.v;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const SPEED_KMH = {WALK: 5, BICYCLE: 15, TRANSIT: 20, DRIVE: 30}; // only sizes the search area
-const FIELDS = ['displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount',
-  'hasOutdoorSeating', 'isGoodForWatchingSports', 'googleMapsURI'];
+const AMENITIES = [['goodForWatchingSports', 'Sports on TV'], ['outdoorSeating', 'Outdoor seating'], ['servesBeer', 'Beer'],
+  ['servesWine', 'Wine'], ['servesVegetarianFood', 'Vegetarian'], ['liveMusic', 'Live music'], ['goodForGroups', 'Groups'],
+  ['reservable', 'Reservations'], ['allowsDogs', 'Dogs OK']];
+const PRICE = {PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4};
+const FIELDS = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri',
+  'priceLevel', 'reviews', ...AMENITIES.map(a => a[0])].map(f => 'places.' + f).join(',') + ',nextPageToken';
 const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
-let KEY, TFL, map, Place, Marker, Pin, results = [], searched = [], shown = [], markers = [], viaTfl = 0;
+let KEY, TFL, map, Marker, Pin, results = [], searched = [], shown = [], markers = [], viaTfl = 0;
+let trip, nextToken, lineStatus = {};
+
+$('amen').innerHTML = AMENITIES.map(([k, n]) => `<button class="chip" data-k="${k}">${n}</button>`).join('');
 
 try { KEY = localStorage.getItem('gmapsKey'); TFL = localStorage.getItem('tflKey'); } catch {}
 if (TFL) $('tflkey').placeholder = 'Saved ✓ (paste a new one to replace)';
@@ -171,12 +193,31 @@ window.gm_authFailure = () => status(`Google rejected your key on this website. 
 
 window.init = async () => {
   const {Map} = await google.maps.importLibrary('maps');
-  ({Place} = await google.maps.importLibrary('places'));
   ({AdvancedMarkerElement: Marker, PinElement: Pin} = await google.maps.importLibrary('marker'));
   map = new Map($('map'), {center: {lat: 51.5246, lng: -0.1605}, zoom: 13, mapId: 'DEMO_MAP_ID', disableDefaultUI: true, zoomControl: true});
   map.addListener('click', e => setOrigin(0, e.latLng.toJSON(), '(map pin)'));
   navigator.geolocation?.getCurrentPosition(p => origins[0].ll || setOrigin(0, {lat: p.coords.latitude, lng: p.coords.longitude}, '(your location)'));
 };
+
+// Places API (New) Text Search over REST: unlike the Maps JS version it pages up to 60 results
+async function textSearch(body, fieldMask) {
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY, 'X-Goog-FieldMask': fieldMask},
+    body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message);
+  return d;
+}
+
+const norm = x => ({...x,
+  displayName: x.displayName?.text ?? '',
+  location: {lat: x.location.latitude, lng: x.location.longitude},
+  price: PRICE[x.priceLevel],
+  reviews: (x.reviews || []).map(v => ({text: v.text?.text || v.originalText?.text || '',
+    author: v.authorAttribution?.displayName || 'A Google user', when: v.relativePublishTimeDescription || ''})),
+});
 
 function setOrigin(i, ll, label) {
   const o = origins[i];
@@ -190,31 +231,88 @@ async function resolveOrigin(i) {
   const o = origins[i], text = $('from' + i).value.trim();
   if (!text) { if (o.marker) o.marker.map = null; delete o.ll; delete o.label; return; }
   if (text === o.label) return;
-  const {places} = await Place.searchByText({textQuery: text, fields: ['location'], maxResultCount: 1});
-  if (!places.length) throw new Error(`couldn't find "${text}"`);
-  setOrigin(i, places[0].location.toJSON(), text);
+  const {places} = await textSearch({textQuery: text, pageSize: 1}, 'places.location');
+  if (!places?.length) throw new Error(`couldn't find "${text}"`);
+  setOrigin(i, {lat: places[0].location.latitude, lng: places[0].location.longitude}, text);
 }
 
 const wp = ll => ({waypoint: {location: {latLng: {latitude: ll.lat, longitude: ll.lng}}}});
 
+async function googleTimes(rs) {
+  const res = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY,
+      'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,condition'},
+    body: JSON.stringify({origins: trip.pts.map(wp), destinations: rs.map(r => wp(r.p.location)), travelMode: trip.mode}),
+  });
+  const rows = await res.json();
+  const err = (Array.isArray(rows) ? rows[0] : rows)?.error;
+  if (err) throw new Error(err.message);
+  // proto3 JSON omits zero values, hence ?? 0
+  for (const r of rows) if (r.condition === 'ROUTE_EXISTS')
+    rs[r.destinationIndex ?? 0].t[r.originIndex ?? 0] = Math.round((parseInt(r.duration) || 0) / 60);
+}
+
+const tflUrl = path => `https://api.tfl.gov.uk/${path}` + (TFL ? `?app_key=${encodeURIComponent(TFL)}` : '');
+
 // Fastest TfL journey right now, or null (outside London, rate limited, no route)
 async function tflJourney(a, b) {
   try {
-    const res = await fetch(`https://api.tfl.gov.uk/Journey/JourneyResults/${a.lat},${a.lng}/to/${b.lat},${b.lng}` + (TFL ? `?app_key=${encodeURIComponent(TFL)}` : ''));
+    const res = await fetch(tflUrl(`Journey/JourneyResults/${a.lat},${a.lng}/to/${b.lat},${b.lng}`));
     if (!res.ok) return null;
     const j = (await res.json()).journeys?.reduce((x, y) => y.duration < x.duration ? y : x);
     if (!j) return null;
-    const lines = j.legs.filter(l => l.mode.name !== 'walking')
-      .map(l => (l.mode.name === 'bus' ? 'Bus ' : '') + (l.routeOptions?.[0]?.name || l.mode.name));
-    return {mins: j.duration, route: lines.join(' → ') || 'Walk'};
+    const legs = j.legs.filter(l => l.mode.name !== 'walking');
+    return {mins: j.duration,
+      route: legs.map(l => (l.mode.name === 'bus' ? 'Bus ' : '') + (l.routeOptions?.[0]?.name || l.mode.name)).join(' → ') || 'Walk',
+      lines: legs.map(l => l.routeOptions?.[0]?.lineIdentifier?.id).filter(Boolean)};
   } catch { return null; }
 }
 
-$('go').onclick = async () => {
-  if (!map) return status('Map not loaded yet. Check your API key.', true);
-  $('go').disabled = true;
-  $('go').textContent = 'Searching…';
+// Lines not running a good service right now: {lineId: "Circle: Part Closure"}
+async function tflStatus() {
   try {
+    const lines = await (await fetch(tflUrl('Line/Mode/tube,elizabeth-line,dlr,overground,tram/Status'))).json();
+    return Object.fromEntries(lines.filter(l => l.lineStatuses.some(s => s.statusSeverity !== 10))
+      .map(l => [l.id, `${l.name}: ${[...new Set(l.lineStatuses.map(s => s.statusSeverityDescription))].join(', ')}`]));
+  } catch { return {}; }
+}
+
+// Fetch one page (20) of places, work out travel times, add to results
+async function addPage(pageToken) {
+  status('Searching places…');
+  const d = await textSearch({...trip.query, pageToken}, FIELDS);
+  nextToken = d.nextPageToken;
+  const fresh = (d.places || []).map(x => ({p: norm(x), t: trip.pts.map(() => null)}));
+  if (fresh.length) {
+    status('Calculating travel times…');
+    await googleTimes(fresh);
+    // TfL overrides Google's transit times wherever it finds a journey
+    if (trip.mode === 'TRANSIT') {
+      status('Checking TfL Journey Planner…');
+      await Promise.all(fresh.flatMap(r => trip.pts.map(async (pt, i) => {
+        const j = await tflJourney(pt, r.p.location);
+        if (j) { r.t[i] = j.mins; (r.route ??= [])[i] = j.route; (r.lines ??= []).push(...j.lines); viaTfl++; }
+      })));
+    }
+  }
+  results.push(...fresh);
+  const b = new google.maps.LatLngBounds();
+  [...trip.pts, ...results.map(r => r.p.location)].forEach(p => b.extend(p));
+  map.fitBounds(b, 40);
+  render();
+}
+
+async function busy(btn, label, job) {
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = label;
+  try { await job(); } catch (e) { status('Error: ' + e.message, true); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+
+$('go').onclick = () => {
+  if (!map) return status('Map not loaded yet. Check your API key.', true);
+  busy($('go'), 'Searching…', async () => {
     status('Finding start points…');
     await resolveOrigin(0);
     await resolveOrigin(1);
@@ -223,49 +321,17 @@ $('go').onclick = async () => {
     const pts = active.map(o => o.ll);
     const center = {lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length};
     const mode = pick('mode');
-
-    status('Searching places…');
-    // ponytail: Text Search caps at 20 results; page with nextPageToken if 20 isn't enough
-    const {places} = await Place.searchByText({textQuery: $('q').value, fields: FIELDS, maxResultCount: 20,
-      locationBias: {center, radius: Math.min(50000, SPEED_KMH[mode] * 1000 / 60 * $('time').value)},
-      isOpenNow: on($('open')) || undefined});
-    results = places.map(p => ({p, t: pts.map(() => null)}));
-    searched = active;
-    viaTfl = 0;
-
-    if (places.length) {
-      status('Calculating travel times…');
-      const res = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY,
-          'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,condition'},
-        body: JSON.stringify({origins: pts.map(wp), destinations: places.map(p => wp(p.location.toJSON())), travelMode: mode}),
-      });
-      const rows = await res.json();
-      const err = (Array.isArray(rows) ? rows[0] : rows)?.error;
-      if (err) throw new Error(err.message);
-      // proto3 JSON omits zero values, hence ?? 0
-      for (const r of rows) if (r.condition === 'ROUTE_EXISTS')
-        results[r.destinationIndex ?? 0].t[r.originIndex ?? 0] = Math.round((parseInt(r.duration) || 0) / 60);
-
-      // TfL overrides Google's transit times wherever it finds a journey
-      if (mode === 'TRANSIT') {
-        status('Checking TfL Journey Planner…');
-        await Promise.all(results.flatMap(r => pts.map(async (pt, i) => {
-          const j = await tflJourney(pt, r.p.location.toJSON());
-          if (j) { r.t[i] = j.mins; (r.route ??= [])[i] = j.route; viaTfl++; }
-        })));
-      }
-
-      const b = new google.maps.LatLngBounds();
-      [...pts, ...places.map(p => p.location)].forEach(p => b.extend(p));
-      map.fitBounds(b, 40);
-    }
-    render();
+    trip = {pts, mode, query: {textQuery: $('q').value, pageSize: 20,
+      locationBias: {circle: {center: {latitude: center.lat, longitude: center.lng}, radius: Math.min(50000, SPEED_KMH[mode] * 1000 / 60 * $('time').value)}},
+      ...(on($('open')) && {openNow: true})}};
+    results = []; searched = active; viaTfl = 0;
+    lineStatus = mode === 'TRANSIT' ? await tflStatus() : {};
+    await addPage();
     document.querySelector('.kpis').scrollIntoView({behavior: 'smooth'});
-  } catch (e) { status('Error: ' + e.message, true); }
-  finally { $('go').disabled = false; $('go').textContent = 'Search'; }
+  });
 };
+
+$('more').onclick = () => busy($('more'), 'Loading…', () => addPage(nextToken));
 
 document.querySelectorAll('.seg, #sort').forEach(g => g.onclick = e => {
   const b = e.target.closest('button');
@@ -275,6 +341,7 @@ document.querySelectorAll('.seg, #sort').forEach(g => g.onclick = e => {
 });
 document.querySelectorAll('.chip').forEach(c => c.onclick = () => { c.classList.toggle('on'); render(); });
 document.querySelectorAll('input[type=range]').forEach(r => r.oninput = render);
+$('kw').oninput = render;
 
 $('list').onclick = e => {
   const c = e.target.closest('.card');
@@ -284,27 +351,46 @@ $('list').onclick = e => {
   map.setZoom(16);
 };
 
+const words = () => $('kw').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+// ~180 chars of review text around the first keyword, escaped, keywords wrapped in <mark>
+function snippet(text, ws) {
+  const low = text.toLowerCase();
+  const i = Math.min(...ws.map(w => low.indexOf(w)).filter(i => i >= 0));
+  const a = Math.max(0, i - 70), b = Math.min(text.length, i + 110);
+  const re = new RegExp(ws.map(w => reEsc(esc(w))).join('|'), 'gi');
+  return (a ? '…' : '') + esc(text.slice(a, b)).replace(re, m => `<mark>${m}</mark>`) + (b < text.length ? '…' : '');
+}
+
 const SORT = {
   rating: r => -(r.p.rating ?? 0) * 1e5 - (r.p.userRatingCount ?? 0),
   reviews: r => -(r.p.userRatingCount ?? 0),
   total: r => r.total,
   fair: r => r.fair * 1000 + r.total,
+  mentions: r => -r.m.length * 1e6 + SORT.rating(r),
 };
 
 function render() {
   $('timeV').textContent = $('time').value + ' min';
   $('ratingV').textContent = (+$('rating').value).toFixed(1) + ' ★';
   $('reviewsV').textContent = $('reviews').value;
+  const ws = words();
   $('fairBtn').hidden = searched.length < 2;
+  $('mentionsBtn').hidden = !ws.length;
   if (!searched.length) return;
 
   const need = [...document.querySelectorAll('.chip.on[data-k]')].map(c => c.dataset.k);
-  shown = results.filter(({p, t}) => t.every(x => x != null && x <= +$('time').value)
+  const maxPrice = +pick('price');
+  results.forEach(r => r.m = ws.length ? r.p.reviews.filter(v => ws.some(w => v.text.toLowerCase().includes(w))) : []);
+  shown = results.filter(({p, t, m}) => t.every(x => x != null && x <= +$('time').value)
     && (p.rating ?? 0) >= +$('rating').value
     && (p.userRatingCount ?? 0) >= +$('reviews').value
-    && need.every(k => p[k]));
+    && (p.price == null || p.price <= maxPrice)
+    && need.every(k => p[k])
+    && (!on($('kwOnly')) || !ws.length || m.length));
   shown.forEach(r => { r.total = r.t.reduce((a, b) => a + b, 0); r.fair = Math.max(...r.t) - Math.min(...r.t); });
-  const k = searched.length < 2 && pick('sort') === 'fair' ? 'rating' : pick('sort');
+  let k = pick('sort');
+  if ((k === 'fair' && searched.length < 2) || (k === 'mentions' && !ws.length)) k = 'rating';
   shown.sort((a, b) => SORT[k](a) - SORT[k](b) || a.total - b.total);
 
   const best = [...shown].sort((a, b) => SORT.rating(a) - SORT.rating(b))[0];
@@ -317,19 +403,29 @@ function render() {
     content: new Pin({glyph: String(i + 1)}).element}));
 
   const maxBar = Math.max(1, ...shown.flatMap(r => r.t));
-  $('list').innerHTML = shown.length ? shown.map((r, i) => `
+  $('list').innerHTML = shown.length ? shown.map((r, i) => {
+    const p = r.p;
+    const warns = [...new Set(r.lines || [])].filter(id => lineStatus[id]).map(id => `<div class="warn">⚠ ${esc(lineStatus[id])}</div>`).join('');
+    const quotes = !ws.length ? '' : r.m.length
+      ? `<div class="quotes"><small>${r.m.length} of ${p.reviews.length} top reviews mention it</small>${r.m.slice(0, 2).map(v =>
+          `<blockquote>“${snippet(v.text, ws)}” <cite>— ${esc(v.author)}, ${esc(v.when)}</cite></blockquote>`).join('')}</div>`
+      : `<div class="quotes"><small>${p.reviews.length ? `None of the ${p.reviews.length} top reviews mention it` : 'No reviews to check'}</small></div>`;
+    return `
     <div class="card" data-i="${i}">
       <div class="card-top">
-        <div><a href="${esc(r.p.googleMapsURI)}" target="_blank" rel="noopener">${i + 1}. ${esc(r.p.displayName)}</a>
-          <div class="addr">${esc(r.p.formattedAddress)}</div></div>
-        <span class="badge">★ ${r.p.rating?.toFixed(1) ?? '–'} <small>(${r.p.userRatingCount ?? 0})</small></span>
+        <div><a href="${esc(p.googleMapsUri)}" target="_blank" rel="noopener">${i + 1}. ${esc(p.displayName)}</a>
+          <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
+        <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags">${r.p.isGoodForWatchingSports ? '<span class="tag">Sports on TV</span>' : ''}${r.p.hasOutdoorSeating ? '<span class="tag">Outdoor seating</span>' : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="tags">${AMENITIES.filter(([a]) => p[a]).map(([, n]) => `<span class="tag">${n}</span>`).join('')}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
         <span class="val">${r.t[j]} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
-    </div>`).join('')
-    : '<div class="empty">Nothing matches. Try a longer travel time or a lower rating.</div>';
+      ${warns}${quotes}
+    </div>`;
+  }).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>';
+
+  $('more').hidden = !nextToken;
   const src = viaTfl ? ` Transit times from TfL${viaTfl < results.length * searched.length ? ' (Google where TfL had no route)' : ''}.` : '';
   status(`Found ${results.length} places, ${shown.length} match your filters.${src} Raised the travel time? Search again to look further out.`);
 }
