@@ -107,8 +107,8 @@ a{color:var(--accent)}
     <div><div class="top"><span>Min reviews</span><span class="val" id="reviewsV"></span></div>
       <input id="reviews" type="range" min="0" max="2000" step="50" value="100"></div>
     <div class="row">
-      <button class="chip" data-k="goodForWatchingSports">Sports on TV</button>
-      <button class="chip" data-k="outdoorSeating">Outdoor seating</button>
+      <button class="chip" data-k="isGoodForWatchingSports">Sports on TV</button>
+      <button class="chip" data-k="hasOutdoorSeating">Outdoor seating</button>
     </div>
   </div>
 
@@ -137,7 +137,7 @@ const pick = id => document.querySelector(`#${id} .on`).dataset.v;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const SPEED_KMH = {WALK: 5, BICYCLE: 15, TRANSIT: 20, DRIVE: 30}; // only sizes the search area
 const FIELDS = ['displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount',
-  'outdoorSeating', 'goodForWatchingSports', 'googleMapsURI'];
+  'hasOutdoorSeating', 'isGoodForWatchingSports', 'googleMapsURI'];
 const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
 let KEY, map, Place, Marker, Pin, results = [], searched = [], shown = [], markers = [];
 
@@ -286,7 +286,7 @@ function render() {
           <div class="addr">${esc(r.p.formattedAddress)}</div></div>
         <span class="badge">★ ${r.p.rating?.toFixed(1) ?? '–'} <small>(${r.p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags">${r.p.goodForWatchingSports ? '<span class="tag">Sports on TV</span>' : ''}${r.p.outdoorSeating ? '<span class="tag">Outdoor seating</span>' : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="tags">${r.p.isGoodForWatchingSports ? '<span class="tag">Sports on TV</span>' : ''}${r.p.hasOutdoorSeating ? '<span class="tag">Outdoor seating</span>' : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
         <span class="val">${r.t[j]} min</span>`).join('')}</div>
