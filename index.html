@@ -20,6 +20,7 @@
   --warn-bg:#3a2a10;--warn-fg:#ffc46b;
 }}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0}
 body{font:15px/20px var(--sans);background:var(--surface);color:var(--on-surface);display:grid;grid-template-columns:420px 1fr;-webkit-font-smoothing:antialiased}
 aside{height:100vh;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
@@ -44,6 +45,7 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .seg{display:flex;background:var(--surface-high);padding:4px;border-radius:999px;gap:4px}
 .seg button{flex:1;border:0;background:transparent;color:var(--on-variant);min-height:32px;padding:0 8px}
 .seg button.on{background:var(--surface-bright);color:var(--on-surface);box-shadow:0 0 12px rgba(0,0,0,.1)}
+#tab button{min-height:40px;font-size:15px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .top{display:flex;justify-content:space-between}
 .val{font-family:var(--mono);font-size:13px}
@@ -75,6 +77,9 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 blockquote{margin:0;padding-left:10px;border-left:3px solid var(--accent-container)}
 cite{font-style:normal;color:var(--on-variant);font-size:12px}
 mark{background:var(--accent-container);color:inherit;border-radius:3px;padding:0 2px}
+.stop{background:var(--surface-bright);border-radius:10px;padding:8px 12px}
+.leg{color:var(--on-variant);font-size:12px;padding-left:16px}
+.btnlink{display:flex;align-items:center;justify-content:center;border-radius:999px;text-decoration:none;font-weight:500}
 summary{cursor:pointer;font-weight:500}
 .empty{padding:20px;text-align:center;background:var(--surface-dim);border-radius:12px;color:var(--on-variant)}
 #status{font-size:14px;margin:0;text-align:center}
@@ -95,21 +100,33 @@ a{color:var(--accent)}
     <button id="savekey" class="primary">Save key</button>
   </div>
 
+  <div class="seg" id="tab"><button data-v="search" class="on">Search</button><button data-v="best">Best of</button></div>
+
   <div class="deck">
-    <label class="field">Looking for <input id="q" type="text" value="pub"></label>
-    <label class="field"><span><span class="dot" style="background:#2575fc"></span>You start from</span>
+    <label class="field" data-tab="search">Looking for <input id="q" type="text" value="pub"></label>
+    <label class="field" data-tab="best">Best what? <input id="bq" type="text" value="Burgers"></label>
+    <div class="row" id="bchips" data-tab="best">
+      <button class="on">Burgers</button><button>Pizza</button><button>Tacos</button><button>Ramen</button><button>Sushi</button><button>Brunch</button><button>Pubs</button><button>Cocktails</button>
+    </div>
+    <label class="field"><span><span class="dot" style="background:#2575fc"></span><span data-tab="search">You start from</span><span data-tab="best">Around</span></span>
       <input id="from0" type="text" placeholder="Address, or tap the map"></label>
-    <label class="field"><span><span class="dot" style="background:#c84288"></span>Friend starts from (optional)</span>
+    <label class="field" data-tab="search"><span><span class="dot" style="background:#c84288"></span>Friend starts from (optional)</span>
       <input id="from1" type="text" placeholder="Leave empty if it's just you"></label>
-    <div class="seg" id="mode">
+    <div class="seg" id="mode" data-tab="search">
       <button data-v="TRANSIT" class="on">Transit</button><button data-v="WALK">Walk</button><button data-v="BICYCLE">Bike</button><button data-v="DRIVE">Car</button>
     </div>
+    <div data-tab="best"><div class="top"><span>Area</span><span class="val" id="areaV"></span></div>
+      <input id="area" type="range" min="0.5" max="10" step="0.5" value="3"></div>
+    <div class="field" data-tab="best">Show top
+      <div class="seg" id="topn"><button data-v="5">5</button><button data-v="10" class="on">10</button><button data-v="20">20</button></div>
+    </div>
     <div class="row"><button class="chip" id="open">Open now</button></div>
-    <button id="go" class="primary">Search</button>
+    <button id="go" class="primary" data-tab="search">Search</button>
+    <button id="goBest" class="primary" data-tab="best">Find the best</button>
     <p id="status">Add a starting point, then Search.</p>
   </div>
 
-  <div class="deck">
+  <div class="deck" data-tab="search">
     <div><div class="top"><span>Max travel time</span><span class="val" id="timeV"></span></div>
       <input id="time" type="range" min="5" max="60" step="5" value="25"></div>
     <div><div class="top"><span>Min rating</span><span class="val" id="ratingV"></span></div>
@@ -127,21 +144,32 @@ a{color:var(--accent)}
     <div class="row"><button class="chip" id="kwOnly">Only places whose reviews mention it</button></div>
   </div>
 
-  <div class="kpis">
+  <div class="kpis" data-tab="search">
     <div class="kpi"><small>Matching</small><b id="kCount">–</b></div>
     <div class="kpi"><small>Avg travel each</small><b id="kTime">–</b></div>
     <div class="kpi"><small>Top match</small><b id="kTop">–</b></div>
   </div>
 
-  <div class="row">
+  <div class="row" data-tab="search">
     <b style="margin-right:auto">Sort</b>
     <div class="row" id="sort">
-      <button data-v="rating" class="on">Rating</button><button data-v="reviews">Reviews</button><button data-v="total">Travel</button><button data-v="fair" id="fairBtn" hidden>Fairness</button><button data-v="mentions" id="mentionsBtn" hidden>Mentions</button>
+      <button data-v="best" class="on">Best</button><button data-v="rating">Rating</button><button data-v="reviews">Reviews</button><button data-v="total">Travel</button><button data-v="fair" id="fairBtn" hidden>Fairness</button><button data-v="mentions" id="mentionsBtn" hidden>Mentions</button>
     </div>
   </div>
 
   <div id="list"></div>
-  <button id="more" hidden>Show 20 more places</button>
+
+  <div class="deck" id="crawlDeck" data-tab="best" hidden>
+    <b>Make it a crawl</b>
+    <span class="addr">Picks the best places that are a short walk from each other, in the shortest walking order.</span>
+    <div><div class="top"><span>Stops</span><span class="val" id="stopsV"></span></div>
+      <input id="stops" type="range" min="3" max="8" step="1" value="5"></div>
+    <div><div class="top"><span>Max walk between stops</span><span class="val" id="gapV"></span></div>
+      <input id="gap" type="range" min="5" max="25" step="1" value="12"></div>
+    <button id="goCrawl" class="primary">Plan crawl</button>
+    <div id="crawlOut" class="quotes"></div>
+  </div>
+  <button id="more" data-tab="search" hidden>Show 20 more places</button>
   <details class="deck">
     <summary>Settings</summary>
     <label class="field">TfL API key (optional). Transit times in London come from TfL's Journey Planner; a key lets it handle more searches.
@@ -163,11 +191,15 @@ const AMENITIES = [['goodForWatchingSports', 'Sports on TV'], ['outdoorSeating',
   ['servesWine', 'Wine'], ['servesVegetarianFood', 'Vegetarian'], ['liveMusic', 'Live music'], ['goodForGroups', 'Groups'],
   ['reservable', 'Reservations'], ['allowsDogs', 'Dogs OK']];
 const PRICE = {PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4};
-const FIELDS = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri',
-  'priceLevel', 'reviews', ...AMENITIES.map(a => a[0])].map(f => 'places.' + f).join(',') + ',nextPageToken';
+const BASIC = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri', 'priceLevel'];
+const mask = fs => fs.map(f => 'places.' + f).join(',') + ',nextPageToken';
+const FIELDS = mask([...BASIC, 'reviews', ...AMENITIES.map(a => a[0])]);
+const BEST_FIELDS = mask(BASIC); // no reviews/amenities: cheaper Google tier
+// Trusted score: every place starts with 200 sceptical 4.0★ reviews and must earn its way up with real ones
+const PRIOR_REVIEWS = 200, PRIOR_RATING = 4.0;
 const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
 let KEY, TFL, map, Marker, Pin, results = [], searched = [], shown = [], markers = [], viaTfl = 0;
-let trip, nextToken, lineStatus = {};
+let trip, nextToken, lineStatus = {}, best, crawl, line;
 
 $('amen').innerHTML = AMENITIES.map(([k, n]) => `<button class="chip" data-k="${k}">${n}</button>`).join('');
 
@@ -219,6 +251,17 @@ const norm = x => ({...x,
     author: v.authorAttribution?.displayName || 'A Google user', when: v.relativePublishTimeDescription || ''})),
 });
 
+// Bayesian average: few reviews keep a place near 4.0, many let its own rating show
+function setScores(ps) {
+  ps.forEach(p => { const n = p.userRatingCount || 0; p.score = (n * (p.rating || 0) + PRIOR_REVIEWS * PRIOR_RATING) / (n + PRIOR_REVIEWS); });
+}
+
+const km = (a, b) => {
+  const r = Math.PI / 180, h = Math.sin((b.lat - a.lat) * r / 2) ** 2
+    + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin((b.lng - a.lng) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+
 function setOrigin(i, ll, label) {
   const o = origins[i];
   o.ll = ll; o.label = label; $('from' + i).value = label;
@@ -238,19 +281,27 @@ async function resolveOrigin(i) {
 
 const wp = ll => ({waypoint: {location: {latLng: {latitude: ll.lat, longitude: ll.lng}}}});
 
-async function googleTimes(rs) {
+// Minutes from each `from` to each `to` (null = no route)
+async function routeMatrix(from, to, mode) {
   const res = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-Goog-Api-Key': KEY,
       'X-Goog-FieldMask': 'originIndex,destinationIndex,duration,condition'},
-    body: JSON.stringify({origins: trip.pts.map(wp), destinations: rs.map(r => wp(r.p.location)), travelMode: trip.mode}),
+    body: JSON.stringify({origins: from.map(wp), destinations: to.map(wp), travelMode: mode}),
   });
   const rows = await res.json();
   const err = (Array.isArray(rows) ? rows[0] : rows)?.error;
   if (err) throw new Error(err.message);
+  const T = from.map(() => to.map(() => null));
   // proto3 JSON omits zero values, hence ?? 0
   for (const r of rows) if (r.condition === 'ROUTE_EXISTS')
-    rs[r.destinationIndex ?? 0].t[r.originIndex ?? 0] = Math.round((parseInt(r.duration) || 0) / 60);
+    T[r.originIndex ?? 0][r.destinationIndex ?? 0] = Math.round((parseInt(r.duration) || 0) / 60);
+  return T;
+}
+
+async function googleTimes(rs) {
+  const T = await routeMatrix(trip.pts, rs.map(r => r.p.location), trip.mode);
+  rs.forEach((r, j) => r.t = T.map(row => row[j]));
 }
 
 const tflUrl = path => `https://api.tfl.gov.uk/${path}` + (TFL ? `?app_key=${encodeURIComponent(TFL)}` : '');
@@ -297,10 +348,14 @@ async function addPage(pageToken) {
     }
   }
   results.push(...fresh);
-  const b = new google.maps.LatLngBounds();
-  [...trip.pts, ...results.map(r => r.p.location)].forEach(p => b.extend(p));
-  map.fitBounds(b, 40);
+  fit([...trip.pts, ...results.map(r => r.p.location)]);
   render();
+}
+
+function fit(points) {
+  const b = new google.maps.LatLngBounds();
+  points.forEach(p => b.extend(p));
+  map.fitBounds(b, 40);
 }
 
 async function busy(btn, label, job) {
@@ -333,15 +388,151 @@ $('go').onclick = () => {
 
 $('more').onclick = () => busy($('more'), 'Loading…', () => addPage(nextToken));
 
+// ---- Best of: rank every place in the area by trusted score ----
+$('goBest').onclick = () => {
+  if (!map) return status('Map not loaded yet. Check your API key.', true);
+  busy($('goBest'), 'Searching…', async () => {
+    await resolveOrigin(0);
+    const c = origins[0].ll || map.getCenter().toJSON(), r = +$('area').value;
+    const dLat = r / 111, dLng = r / (111 * Math.cos(c.lat * Math.PI / 180));
+    const query = {textQuery: $('bq').value, pageSize: 20, ...(on($('open')) && {openNow: true}),
+      locationRestriction: {rectangle: {low: {latitude: c.lat - dLat, longitude: c.lng - dLng}, high: {latitude: c.lat + dLat, longitude: c.lng + dLng}}}};
+    const all = [];
+    let pageToken;
+    do { // Google gives at most 3 pages of 20
+      status(`Scanning the area… ${all.length} places so far`);
+      const d = await textSearch({...query, pageToken}, BEST_FIELDS);
+      all.push(...(d.places || []).map(norm));
+      pageToken = d.nextPageToken;
+    } while (pageToken);
+    const list = all.filter(p => p.userRatingCount && km(c, p.location) <= r);
+    setScores(list);
+    list.sort((a, b) => b.score - a.score);
+    best = {center: c, list, from: origins[0].ll ? 'you' : 'the map centre'};
+    crawl = null;
+    $('crawlOut').innerHTML = '';
+    renderBest();
+    $('list').scrollIntoView({behavior: 'smooth'});
+  });
+};
+
+function clearMap() {
+  markers.forEach(m => m.map = null);
+  markers = [];
+  line?.setMap(null);
+}
+
+function renderBest() {
+  $('areaV').textContent = $('area').value + ' km';
+  $('stopsV').textContent = $('stops').value;
+  $('gapV').textContent = $('gap').value + ' min';
+  clearMap();
+  if (!best) { $('list').innerHTML = ''; return status('Pick what you want and an area, then Find the best.'); }
+  const top = best.list.slice(0, +pick('topn'));
+  shown = top.map(p => ({p}));
+  $('crawlDeck').hidden = best.list.length < 3;
+  if (crawl) drawCrawl();
+  else {
+    markers = top.map((p, i) => new Marker({map, position: p.location, title: p.displayName, content: new Pin({glyph: String(i + 1)}).element}));
+    if (top.length) fit([best.center, ...top.map(p => p.location)]);
+  }
+  $('list').innerHTML = top.length ? top.map((p, i) => `
+    <div class="card" data-i="${i}">
+      <div class="card-top">
+        <div><a href="${esc(p.googleMapsUri)}" target="_blank" rel="noopener">${i + 1}. ${esc(p.displayName)}</a>
+          <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
+        <span class="badge">${p.score.toFixed(2)}</span>
+      </div>
+      <div class="addr">★ ${p.rating.toFixed(1)} from ${p.userRatingCount.toLocaleString()} reviews · ${km(best.center, p.location).toFixed(1)} km from ${best.from}</div>
+    </div>`).join('') : '<div class="empty">Nothing found here. Try a bigger area or a different word.</div>';
+  status(`Ranked ${best.list.length} places within ${$('area').value} km by trusted score: the rating, weighted by how many reviews back it up.`);
+}
+
+// ---- Crawl ----
+// The best-scoring k places all within rKm of one "anchor" place, so every hop stays short
+function pickCluster(cands, k, rKm) {
+  let top;
+  for (const a of cands) {
+    const near = cands.filter(c => km(a.location, c.location) <= rKm).slice(0, k); // cands are sorted by score
+    const s = near.reduce((t, c) => t + c.score, 0);
+    if (!top || near.length > top.near.length || (near.length === top.near.length && s > top.s)) top = {near, s};
+  }
+  return top?.near || [];
+}
+
+// Shortest open path through every stop (brute force; 8 stops = 40k orders, instant)
+function bestOrder(T) {
+  let best = {cost: Infinity, path: []};
+  const go = (path, used, cost) => {
+    if (cost >= best.cost) return;
+    if (path.length === T.length) { best = {cost, path: [...path]}; return; }
+    for (let j = 0; j < T.length; j++) if (!used.has(j)) {
+      used.add(j); path.push(j);
+      go(path, used, cost + (path.length > 1 ? T[path.at(-2)][j] : 0));
+      path.pop(); used.delete(j);
+    }
+  };
+  go([], new Set(), 0);
+  return best;
+}
+
+$('goCrawl').onclick = () => busy($('goCrawl'), 'Planning…', async () => {
+  const k = +$('stops').value;
+  const stops = pickCluster(best.list, k, +$('gap').value * 5 / 60 / 1.3); // walk at 5 km/h, streets ~1.3× the straight line
+  status('Working out walking times…');
+  const T = await routeMatrix(stops.map(p => p.location), stops.map(p => p.location), 'WALK');
+  const {path} = bestOrder(T.map(row => row.map(x => x ?? 999)));
+  crawl = path.map(i => stops[i]);
+  crawl.legs = path.slice(1).map((j, n) => T[path[n]][j]);
+  renderBest();
+  $('crawlOut').innerHTML = crawlHtml();
+  if (stops.length < k) status(`Only ${stops.length} good places sit close together. Allow a longer walk between stops for more.`, true);
+  $('crawlOut').scrollIntoView({behavior: 'smooth', block: 'center'});
+});
+
+function drawCrawl() {
+  markers = crawl.map((p, i) => new Marker({map, position: p.location, title: p.displayName,
+    content: new Pin({glyph: String(i + 1), background: '#3186ff', borderColor: '#fff', glyphColor: '#fff'}).element}));
+  line = new google.maps.Polyline({map, path: crawl.map(p => p.location), strokeColor: '#3186ff', strokeOpacity: .8, strokeWeight: 4});
+  fit(crawl.map(p => p.location));
+}
+
+function crawlHtml() {
+  const ll = p => `${p.location.lat},${p.location.lng}`, first = crawl[0], last = crawl.at(-1), mid = crawl.slice(1, -1);
+  const url = 'https://www.google.com/maps/dir/?api=1&travelmode=walking'
+    + `&origin=${ll(first)}&origin_place_id=${encodeURIComponent(first.id)}`
+    + `&destination=${ll(last)}&destination_place_id=${encodeURIComponent(last.id)}`
+    + (mid.length ? `&waypoints=${encodeURIComponent(mid.map(ll).join('|'))}&waypoint_place_ids=${encodeURIComponent(mid.map(p => p.id).join('|'))}` : '');
+  const total = crawl.legs.reduce((s, m) => s + (m ?? 0), 0);
+  return `<b>${crawl.length} stops · about ${total} min walking in total</b>`
+    + crawl.map((p, i) => (i ? `<div class="leg">↓ ${crawl.legs[i - 1] ?? '?'} min walk</div>` : '')
+      + `<div class="stop"><b>${i + 1}. ${esc(p.displayName)}</b><div class="addr">★ ${p.rating.toFixed(1)} (${p.userRatingCount.toLocaleString()}) · score ${p.score.toFixed(2)}</div></div>`).join('')
+    + `<a class="primary btnlink" href="${esc(url)}" target="_blank" rel="noopener">Open crawl in Google Maps</a>`;
+}
+
+// ---- Controls ----
+function refresh() {
+  const t = pick('tab');
+  document.querySelectorAll('[data-tab]').forEach(el => el.hidden = el.dataset.tab !== t);
+  if (t === 'best') { $('crawlDeck').hidden = !best || best.list.length < 3; renderBest(); }
+  else render();
+}
+
 document.querySelectorAll('.seg, #sort').forEach(g => g.onclick = e => {
   const b = e.target.closest('button');
   if (!b) return;
   g.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
-  render();
+  refresh();
 });
-document.querySelectorAll('.chip').forEach(c => c.onclick = () => { c.classList.toggle('on'); render(); });
-document.querySelectorAll('input[type=range]').forEach(r => r.oninput = render);
-$('kw').oninput = render;
+$('bchips').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  $('bchips').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  $('bq').value = b.textContent;
+};
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => { c.classList.toggle('on'); refresh(); });
+document.querySelectorAll('input[type=range]').forEach(r => r.oninput = refresh);
+$('kw').oninput = refresh;
 
 $('list').onclick = e => {
   const c = e.target.closest('.card');
@@ -363,11 +554,12 @@ function snippet(text, ws) {
 }
 
 const SORT = {
+  best: r => -r.p.score,
   rating: r => -(r.p.rating ?? 0) * 1e5 - (r.p.userRatingCount ?? 0),
   reviews: r => -(r.p.userRatingCount ?? 0),
   total: r => r.total,
   fair: r => r.fair * 1000 + r.total,
-  mentions: r => -r.m.length * 1e6 + SORT.rating(r),
+  mentions: r => -r.m.length * 1e6 + SORT.best(r),
 };
 
 function render() {
@@ -377,10 +569,12 @@ function render() {
   const ws = words();
   $('fairBtn').hidden = searched.length < 2;
   $('mentionsBtn').hidden = !ws.length;
-  if (!searched.length) return;
+  $('more').hidden = !nextToken;
+  if (!searched.length) { $('list').innerHTML = ''; clearMap(); return; }
 
   const need = [...document.querySelectorAll('.chip.on[data-k]')].map(c => c.dataset.k);
   const maxPrice = +pick('price');
+  setScores(results.map(r => r.p));
   results.forEach(r => r.m = ws.length ? r.p.reviews.filter(v => ws.some(w => v.text.toLowerCase().includes(w))) : []);
   shown = results.filter(({p, t, m}) => t.every(x => x != null && x <= +$('time').value)
     && (p.rating ?? 0) >= +$('rating').value
@@ -390,15 +584,15 @@ function render() {
     && (!on($('kwOnly')) || !ws.length || m.length));
   shown.forEach(r => { r.total = r.t.reduce((a, b) => a + b, 0); r.fair = Math.max(...r.t) - Math.min(...r.t); });
   let k = pick('sort');
-  if ((k === 'fair' && searched.length < 2) || (k === 'mentions' && !ws.length)) k = 'rating';
+  if ((k === 'fair' && searched.length < 2) || (k === 'mentions' && !ws.length)) k = 'best';
   shown.sort((a, b) => SORT[k](a) - SORT[k](b) || a.total - b.total);
 
-  const best = [...shown].sort((a, b) => SORT.rating(a) - SORT.rating(b))[0];
+  const top = [...shown].sort((a, b) => SORT.best(a) - SORT.best(b))[0];
   $('kCount').textContent = `${shown.length} / ${results.length}`;
   $('kTime').textContent = shown.length ? Math.round(shown.reduce((s, r) => s + r.total, 0) / shown.length / searched.length) + ' min' : '–';
-  $('kTop').textContent = best ? best.p.displayName : '–';
+  $('kTop').textContent = top ? top.p.displayName : '–';
 
-  markers.forEach(m => m.map = null);
+  clearMap();
   markers = shown.map((r, i) => new Marker({map, position: r.p.location, title: r.p.displayName,
     content: new Pin({glyph: String(i + 1)}).element}));
 
@@ -417,7 +611,7 @@ function render() {
           <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags">${AMENITIES.filter(([a]) => p[a]).map(([, n]) => `<span class="tag">${n}</span>`).join('')}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="tags"><span class="tag">Score ${p.score.toFixed(2)}</span>${AMENITIES.filter(([a]) => p[a]).map(([, n]) => `<span class="tag">${n}</span>`).join('')}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
         <span class="val">${r.t[j]} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
@@ -425,13 +619,12 @@ function render() {
     </div>`;
   }).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>';
 
-  $('more').hidden = !nextToken;
   const src = viaTfl ? ` Transit times from TfL${viaTfl < results.length * searched.length ? ' (Google where TfL had no route)' : ''}.` : '';
   status(`Found ${results.length} places, ${shown.length} match your filters.${src} Raised the travel time? Search again to look further out.`);
 }
 
 function status(t, err) { $('status').textContent = t; $('status').classList.toggle('err', !!err); }
-render();
+refresh();
 </script>
 </body>
 </html>
