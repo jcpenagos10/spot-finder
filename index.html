@@ -335,9 +335,14 @@ async function routeMatrix(from, to, mode) {
   return T;
 }
 
+// Google fills only the times still missing (TfL may have found the rest), so it bills fewer elements
 async function googleTimes(rs) {
-  const T = await routeMatrix(trip.pts, rs.map(r => r.p.location), trip.mode);
-  rs.forEach((r, j) => r.t = T.map(row => row[j]));
+  await Promise.all(trip.pts.map(async (pt, i) => {
+    const todo = rs.filter(r => r.t[i] == null);
+    if (!todo.length) return;
+    const [row] = await routeMatrix([pt], todo.map(r => r.p.location), trip.mode);
+    todo.forEach((r, j) => r.t[i] = row[j]);
+  }));
 }
 
 const tflUrl = path => `https://api.tfl.gov.uk/${path}` + (TFL ? `?app_key=${encodeURIComponent(TFL)}` : '');
@@ -372,9 +377,7 @@ async function addPage(pageToken) {
   nextToken = d.nextPageToken;
   const fresh = (d.places || []).map(x => ({p: norm(x), t: trip.pts.map(() => null)}));
   if (fresh.length) {
-    status('Calculating travel times…');
-    await googleTimes(fresh);
-    // TfL overrides Google's transit times wherever it finds a journey
+    // Transit: TfL first, Google only where TfL had no journey
     if (trip.mode === 'TRANSIT') {
       status('Checking TfL Journey Planner…');
       await Promise.all(fresh.flatMap(r => trip.pts.map(async (pt, i) => {
@@ -382,6 +385,8 @@ async function addPage(pageToken) {
         if (j) { r.t[i] = j.mins; (r.route ??= [])[i] = j.route; (r.lines ??= []).push(...j.lines); viaTfl++; }
       })));
     }
+    status('Calculating travel times…');
+    await googleTimes(fresh);
   }
   results.push(...fresh);
   fit([...trip.pts, ...results.map(r => r.p.location)]);
