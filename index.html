@@ -452,8 +452,10 @@ $('goBest').onclick = () => {
     const qw = dishWords($('bq').value, list), ws = qw.filter(w => !w.common);
     const n = t => t ? qw.filter(w => w.test(t)).length : 0; // "Basque cheesecake" in one review beats "Basque food"
     list.forEach(p => p.hit = ws.length ? p.chunks.filter(t => ws.every(w => w.test(t))).sort((a, b) => n(b) - n(a)) : []);
-    list.sort((a, b) => !!b.hit.length - !!a.hit.length || n(b.hit[0]) - n(a.hit[0]) || b.score - a.score);
-    best = {center: c, list, ws, qw, from: origins[0].ll ? 'you' : 'the map centre'};
+    // Most mentions first: two reviews saying "New York style" beat one saying "better than New York"
+    list.sort((a, b) => b.hit.length - a.hit.length || n(b.hit[0]) - n(a.hit[0]) || b.score - a.score);
+    const hits = list.filter(p => p.hit.length); // a specific search shows only places that mention it, even if fewer than asked
+    best = {center: c, list: hits.length ? hits : list, hidden: hits.length && list.length - hits.length, ws, qw, from: origins[0].ll ? 'you' : 'the map centre'};
     crawl = null;
     $('crawlOut').innerHTML = '';
     renderBest();
@@ -505,12 +507,12 @@ function renderBest() {
       <div class="row">${pickBtn(p)}</div>
       <div class="addr">★ ${p.rating.toFixed(1)} from ${p.userRatingCount.toLocaleString()} reviews · ${km(best.center, p.location).toFixed(1)} km from ${best.from}</div>
       ${!best.ws.length ? '' : `<div class="quotes">${p.hit.length
-        ? `<small>✓ Mentions ${esc(wsText())}</small><blockquote>“${snippet(p.hit[0], best.qw.map(w => w.source.slice(2)))}”</blockquote>`
+        ? `<small>✓ Mentions ${esc(wsText())}${p.hit.length > 1 ? ` ${p.hit.length} times` : ''}</small><blockquote>“${snippet(p.hit[0], best.qw.map(w => w.source.slice(2)))}”</blockquote>`
         : `<small>Not mentioned in its top reviews</small>`}</div>`}
     </div>`).join('') : '<div class="empty">Nothing found here. Try a bigger area or a different word.</div>';
-  const hits = best.list.filter(p => p.hit.length).length;
-  status(`Ranked ${best.list.length} places within ${$('area').value} km by trusted score: the rating, weighted by how many reviews back it up.`
-    + (best.ws.length ? ` ${hits} of them mention ${wsText()} (the specific part of your search) in their name or reviews; those come first.` : ''));
+  status(!best.ws.length ? `Ranked ${best.list.length} places within ${$('area').value} km by trusted score: the rating, weighted by how many reviews back it up.`
+    : best.hidden ? `Only ${best.list.length} places within ${$('area').value} km mention ${wsText()} in their name or top reviews (${best.hidden} that don't are hidden). Most mentions first, then trusted score.`
+    : `None of the ${best.list.length} places within ${$('area').value} km mention ${wsText()} in their top reviews, so here they all are by trusted score.`);
 }
 const wsText = () => '“' + best.ws.map(w => w.source.slice(2)).join(' ') + '”';
 
