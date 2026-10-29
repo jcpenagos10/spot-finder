@@ -23,7 +23,7 @@ Uses it on iPhone and Mac. Non-technical: explain steps click by click, in plain
 - Open-Meteo (weather strip, no key), ESPN public scoreboard feed (match picker, no key), ntfy.sh (live group votes; topic `spotvote-<random>`, options in the URL hash, messages kept ~12h).
 
 ## Features
-Search tab (two origins + fairness sort, filters, review keyword highlights, price, amenities, "show 20 more"), weather strip for outdoor seating, "⚽ Watch a match", "Best of" tab (trusted score = Bayesian average with 200 reviews at 4.0 prior; walking crawl planner with brute-force order + Google Maps link), group vote (friends need no Google key).
+Search tab (two origins + fairness sort, filters, review keyword highlights, price, amenities, "show 20 more"), weather strip for outdoor seating, "⚽ Watch a match", "Best of" tab (trusted score = Bayesian average with 200 reviews at 4.0 prior; specific searches like "Basque cheesecake" put places whose name/top 5 reviews mention the rare words first (`dishWords`); walking crawl planner with brute-force order + Google Maps link), group vote (friends need no Google key).
 
 ## Testing without a Google key
 In the browser, stub the globals `map`, `Marker`, `Pin`, `google.maps`, `textSearch`, `googleTimes`, set `origins[0].ll`, then click buttons. TfL / weather / fixtures / ntfy work for real.

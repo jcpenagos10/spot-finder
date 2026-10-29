@@ -229,7 +229,7 @@ const PRICE = {PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODE
 const BASIC = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri', 'priceLevel'];
 const mask = fs => fs.map(f => 'places.' + f).join(',') + ',nextPageToken';
 const FIELDS = mask([...BASIC, 'reviews', ...AMENITIES.map(a => a[0])]);
-const BEST_FIELDS = mask(BASIC); // no reviews/amenities: cheaper Google tier
+const BEST_FIELDS = mask([...BASIC, 'reviews', 'editorialSummary']); // reviews: to check a place actually mentions the dish
 // Trusted score: every place starts with 200 sceptical 4.0★ reviews and must earn its way up with real ones
 const PRIOR_REVIEWS = 200, PRIOR_RATING = 4.0;
 const origins = [{name: 'You', color: '#2575fc'}, {name: 'Friend', color: '#c84288'}];
@@ -449,14 +449,31 @@ $('goBest').onclick = () => {
     } while (pageToken);
     const list = all.filter(p => p.userRatingCount && km(c, p.location) <= r);
     setScores(list);
-    list.sort((a, b) => b.score - a.score);
-    best = {center: c, list, from: origins[0].ll ? 'you' : 'the map centre'};
+    const qw = dishWords($('bq').value, list), ws = qw.filter(w => !w.common);
+    const n = t => t ? qw.filter(w => w.test(t)).length : 0; // "Basque cheesecake" in one review beats "Basque food"
+    list.forEach(p => p.hit = ws.length ? p.chunks.filter(t => ws.every(w => w.test(t))).sort((a, b) => n(b) - n(a)) : []);
+    list.sort((a, b) => !!b.hit.length - !!a.hit.length || n(b.hit[0]) - n(a.hit[0]) || b.score - a.score);
+    best = {center: c, list, ws, qw, from: origins[0].ll ? 'you' : 'the map centre'};
     crawl = null;
     $('crawlOut').innerHTML = '';
     renderBest();
     $('list').scrollIntoView({behavior: 'smooth'});
   });
 };
+
+// The words of a search; .common marks ones nearly every result has ("pizza"), which can't tell places apart.
+// The rest ("new", "york" in "New York-style pizza") must be mentioned for a place to count as a match.
+// ponytail: plain word match over Google's 5 top reviews; a place great at the dish whose 5 reviews don't say so ranks lower
+const FILLER = new Set(['best', 'top', 'the', 'and', 'with', 'for', 'near', 'london', 'style', 'place', 'restaurant', 'food', 'good', 'great']);
+function dishWords(q, ps) {
+  ps.forEach(p => p.chunks = [p.displayName, p.editorialSummary?.text || '', ...p.reviews.map(v => v.text)]);
+  return [...new Set(q.toLowerCase().split(/[^a-z\u00c0-\u024f]+/).filter(w => w.length > 2 && !FILLER.has(w)).map(w => w.replace(/s$/, '')))]
+    .map(w => {
+      const re = new RegExp('\\b' + w, 'i');
+      re.common = ps.filter(p => re.test(p.chunks.join(' '))).length >= ps.length * 0.6;
+      return re;
+    });
+}
 
 function clearMap() {
   markers.forEach(m => m.map = null);
@@ -487,9 +504,15 @@ function renderBest() {
       </div>
       <div class="row">${pickBtn(p)}</div>
       <div class="addr">★ ${p.rating.toFixed(1)} from ${p.userRatingCount.toLocaleString()} reviews · ${km(best.center, p.location).toFixed(1)} km from ${best.from}</div>
+      ${!best.ws.length ? '' : `<div class="quotes">${p.hit.length
+        ? `<small>✓ Mentions ${esc(wsText())}</small><blockquote>“${snippet(p.hit[0], best.qw.map(w => w.source.slice(2)))}”</blockquote>`
+        : `<small>Not mentioned in its top reviews</small>`}</div>`}
     </div>`).join('') : '<div class="empty">Nothing found here. Try a bigger area or a different word.</div>';
-  status(`Ranked ${best.list.length} places within ${$('area').value} km by trusted score: the rating, weighted by how many reviews back it up.`);
+  const hits = best.list.filter(p => p.hit.length).length;
+  status(`Ranked ${best.list.length} places within ${$('area').value} km by trusted score: the rating, weighted by how many reviews back it up.`
+    + (best.ws.length ? ` ${hits} of them mention ${wsText()} (the specific part of your search) in their name or reviews; those come first.` : ''));
 }
+const wsText = () => '“' + best.ws.map(w => w.source.slice(2)).join(' ') + '”';
 
 // ---- Crawl ----
 // The best-scoring k places all within rKm of one "anchor" place, so every hop stays short
