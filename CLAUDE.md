@@ -15,6 +15,7 @@ Uses it on iPhone and Mac. Non-technical: explain steps click by click, in plain
 - Price: `costOf()` → `p.cost` from Google `priceRange` ("£20–30" pp), else `priceLevel` mapped to rough £ bands (`LEVEL_COST`), else £ amounts in the top reviews (barbers etc.). "Max spend per person" slider compares `typical()` (range midpoint); 105 = Any. No price info → always shown.
 - "📍 Me" button (`locateMe`) sets the start point from the phone's location; the automatic try on load stays silent and never overwrites typed text.
 - All network calls go through `get()` (fetch with a time limit). `status(text, err, pop)` writes the status line and, when it's off screen, pops up a bottom toast for errors (or `pop`).
+- Layout: grid columns use `minmax(0,1fr)` and decks `min-width:0` so wide children (weather strip) scroll instead of widening the page (that made iPhone shrink everything after a search). Review-based amenity tags only show for active chips; the weather box only shows if a result has `outdoorSeating` or the Outdoor chip is on.
 - iPhone: text inputs must stay ≥16px (smaller makes Safari zoom in); the phone layout has a sticky map, and `scroll-margin-top` keeps scrolled-to sections below it.
 - Check a deploy: `gh api repos/jcpenagos10/spot-finder/pages/builds/latest --jq .status` → `built`.
 - Local preview: `python3 -m http.server 8765` (`.claude/launch.json` has it as `spot-finder`).

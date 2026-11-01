@@ -33,12 +33,12 @@
 [hidden]{display:none!important}
 html,body{margin:0}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{font:15px/20px var(--sans);background:var(--surface);color:var(--on-surface);display:grid;grid-template-columns:420px 1fr;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
-aside{height:100vh;height:100dvh;overflow:auto;padding:16px;padding-left:max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
+body{font:15px/20px var(--sans);background:var(--surface);color:var(--on-surface);display:grid;grid-template-columns:420px minmax(0,1fr);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+aside{min-width:0;height:100vh;height:100dvh;overflow:auto;padding:16px;padding-left:max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:16px}
 #map{height:100vh;height:100dvh}
 @media (max-width:760px){
   :root{--maph:max(220px,34svh)}
-  body{grid-template-columns:1fr}
+  body{grid-template-columns:minmax(0,1fr)} /* minmax(0,…): a wide child (the weather strip) must scroll, not widen the page */
   #map{height:var(--maph);grid-row:1;position:sticky;top:0;z-index:1;box-shadow:0 1px 0 var(--stroke)}
   aside{height:auto;overflow:visible;padding:12px max(12px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));gap:12px}
   aside > *{scroll-margin-top:calc(var(--maph) + 8px)} /* scrolled-to sections land below the sticky map, not under it */
@@ -58,7 +58,7 @@ aside{height:100vh;height:100dvh;overflow:auto;padding:16px;padding-left:max(16p
 }
 h1{margin:0;font-size:24px;line-height:28px;font-weight:500}
 .sub{margin:4px 0 0;color:var(--on-variant);font-size:13px}
-.deck{background:var(--surface-dim);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.deck{min-width:0;background:var(--surface-dim);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
 .field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--on-variant)}
 input[type=text]{min-height:44px;padding:0 14px;font:16px var(--sans);/* under 16px makes iPhone zoom in on tap */color:var(--on-surface);background:var(--surface-bright);border:1px solid var(--stroke);border-radius:14px;outline:none}
 input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-container)}
@@ -120,7 +120,7 @@ summary{cursor:pointer;font-weight:500}
 #status.err{color:#de2d29;font-weight:500}
 a{color:var(--accent)}
 body.voteonly aside > :not(header, #voteBox){display:none!important}
-.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+.strip{max-width:100%;-webkit-overflow-scrolling:touch;display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
 .strip button{flex:0 0 auto;min-height:0;padding:6px 10px;border-radius:12px;display:flex;flex-direction:column;align-items:center;line-height:18px;font-weight:400}
 .pick{min-height:28px;padding:0 10px;font-size:12px;flex:0 0 auto}
 .opt{display:flex;justify-content:space-between;gap:8px;align-items:center;text-align:left;min-height:52px;border-radius:12px;padding:8px 12px}
@@ -543,6 +543,7 @@ async function addPage(pageToken) {
   results.push(...fresh);
   fit([...trip.pts, ...results.map(r => r.p.location)]);
   render();
+  if (wx) renderWeather(); // show/hide the weather box now that we know if any place has outdoor seating
 }
 
 function fit(points) {
@@ -910,7 +911,8 @@ function render() {
       ? `<div class="quotes"><small>${r.m.length} of ${p.reviews.length} top reviews mention it</small>${r.m.slice(0, 2).map(v =>
           `<blockquote>“${snippet(v.text, ws)}” <cite>— ${esc(v.author)}, ${esc(v.when)}</cite></blockquote>`).join('')}</div>`
       : `<div class="quotes"><small>${p.reviews.length ? `None of the ${p.reviews.length} top reviews mention it` : 'No reviews to check'}</small></div>`;
-    const amen = AMENITIES.map(([a, n]) => [has(p, a), n]).filter(([h]) => h)
+    // review-based guesses only show for filters that are on (a barber whose review mentions "football on the tv" isn't a sports bar)
+    const amen = AMENITIES.map(([a, n]) => [has(p, a), n, a]).filter(([h, , a]) => h === 'yes' || (h && need.includes(a)))
       .map(([h, n]) => `<span class="tag"${h === 'said' ? ' title="Not in Google\'s details, but its summary or reviews mention it"' : ''}>${n}${h === 'said' ? ' (from reviews)' : ''}</span>`).join('');
     return `
     <div class="card${off ? ' off' : ''}" data-i="${i}">
@@ -920,7 +922,7 @@ function render() {
           <div class="addr">${p.cost ? esc(priceText(p)) + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags">${pickBtn(p)}${r.added ? '<span class="tag">Added by you</span>' : ''}<span class="tag">Score ${p.score.toFixed(2)}</span>${amen}${has(p, 'outdoorSeating') && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 && !off ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="tags">${pickBtn(p)}${r.added ? '<span class="tag">Added by you</span>' : ''}<span class="tag">Score ${p.score.toFixed(2)}</span>${amen}${(p.outdoorSeating === true || (need.includes('outdoorSeating') && has(p, 'outdoorSeating'))) && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 && !off ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${(r.t[j] ?? 0) / maxBar * 100}%;background:${o.color}"></div></div>
         <span class="val">${r.t[j] ?? '–'} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
@@ -959,7 +961,8 @@ async function loadWeather(c) {
 const nearest = t => wx.time.reduce((b, x, i) => Math.abs(x - t) < Math.abs(wx.time[b] - t) ? i : b, 0);
 
 function renderWeather() {
-  $('wxDeck').hidden = !wx || pick('tab') !== 'search';
+  // only worth showing when outdoor seating is in play (not for barbers)
+  $('wxDeck').hidden = !wx || pick('tab') !== 'search' || !(on(document.querySelector('[data-k=outdoorSeating]')) || results.some(r => r.p.outdoorSeating === true));
   if (!wx) return;
   const now = nearest(Date.now() / 1000), s = Math.max(now, wxAt - 3);
   $('strip').innerHTML = wx.time.slice(s, s + 24).map((t, k) => { const i = s + k; return `
