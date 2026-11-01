@@ -244,6 +244,12 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
     <div id="crawlOut" class="quotes"></div>
   </div>
   <button id="more" data-tab="search" hidden>Show 20 more places</button>
+  <div class="deck" id="findDeck" data-tab="search" hidden>
+    <b>Missing a place you know?</b>
+    <span class="addr">Type its name and it checks whether Google's search found it, adds it if not, and says which filter hides it.</span>
+    <input id="findName" type="text" placeholder="e.g. BrewDog" enterkeyhint="search">
+    <button id="findGo">Check this place</button>
+  </div>
   <details class="deck">
     <summary>Settings</summary>
     <label class="field">TfL API key (optional). Transit times in London come from TfL's Journey Planner; a key lets it handle more searches.
@@ -272,7 +278,7 @@ const AMENITIES = [['goodForWatchingSports', 'Sports on TV'], ['outdoorSeating',
 const PRICE = {PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4};
 const BASIC = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri', 'priceLevel'];
 const mask = fs => fs.map(f => 'places.' + f).join(',') + ',nextPageToken';
-const FIELDS = mask([...BASIC, 'reviews', 'editorialSummary', ...AMENITIES.map(a => a[0])]); // summary + reviews: clues when Google's yes/no is blank
+const FIELDS = mask([...BASIC, 'reviews', 'editorialSummary', 'primaryTypeDisplayName', 'currentOpeningHours.openNow', ...AMENITIES.map(a => a[0])]); // summary + reviews: clues when Google's yes/no is blank
 const BEST_FIELDS = mask([...BASIC, 'reviews', 'editorialSummary']); // reviews: to check a place actually mentions the dish
 // Trusted score: every place starts with 200 sceptical 4.0★ reviews and must earn its way up with real ones
 const PRIOR_REVIEWS = 200, PRIOR_RATING = 4.0;
@@ -459,6 +465,13 @@ async function tflStatus() {
   } catch { return {}; }
 }
 
+async function tflTimes(rs, t) {
+  await Promise.all(rs.flatMap(r => t.pts.map(async (pt, i) => {
+    const j = await tflJourney(pt, r.p.location);
+    if (j) { r.t[i] = j.mins; (r.route ??= [])[i] = j.route; (r.lines ??= []).push(...j.lines); viaTfl++; }
+  })));
+}
+
 // Fetch one page (20) of places, work out travel times, add to results
 async function addPage(pageToken) {
   const mine = trip; // a new Search started meanwhile? then drop this page instead of mixing it in
@@ -469,13 +482,7 @@ async function addPage(pageToken) {
   const fresh = (d.places || []).map(x => ({p: norm(x), t: mine.pts.map(() => null)}));
   if (fresh.length) {
     // Transit: TfL first, Google only where TfL had no journey
-    if (mine.mode === 'TRANSIT') {
-      status('Checking TfL Journey Planner…');
-      await Promise.all(fresh.flatMap(r => mine.pts.map(async (pt, i) => {
-        const j = await tflJourney(pt, r.p.location);
-        if (j) { r.t[i] = j.mins; (r.route ??= [])[i] = j.route; (r.lines ??= []).push(...j.lines); viaTfl++; }
-      })));
-    }
+    if (mine.mode === 'TRANSIT') { status('Checking TfL Journey Planner…'); await tflTimes(fresh, mine); }
     status('Calculating travel times…');
     await googleTimes(fresh, mine);
   }
@@ -513,8 +520,8 @@ $('go').onclick = () => {
     const center = {lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length};
     const mode = pick('mode');
     trip = {pts, mode, query: {textQuery: $('q').value, pageSize: 20,
-      locationBias: {circle: {center: {latitude: center.lat, longitude: center.lng}, radius: Math.min(50000, SPEED_KMH[mode] * 1000 / 60 * $('time').value)}},
-      ...(on($('open')) && {openNow: true})}};
+      locationBias: {circle: {center: {latitude: center.lat, longitude: center.lng}, radius: Math.min(50000, SPEED_KMH[mode] * 1000 / 60 * $('time').value)}}}};
+    // "Open now" is applied in render (not sent to Google), so closed places show up as hidden with a reason
     results = []; searched = active; viaTfl = 0;
     lineStatus = mode === 'TRANSIT' ? await tflStatus() : {};
     loadWeather(center);
@@ -524,6 +531,37 @@ $('go').onclick = () => {
 };
 
 $('more').onclick = () => busy($('more'), 'Loading…', () => addPage(nextToken));
+
+// "Missing a place?": look it up by name near the search, add it if Google's search skipped it, say why it's hidden
+$('findGo').onclick = () => busy($('findGo'), 'Checking…', async () => {
+  const name = $('findName').value.trim(), mine = trip;
+  if (!name) return status('Type the name of the place you expected to see.', true);
+  if (!mine) return status('Search first, then check a place.', true);
+  $('findName').blur();
+  const d = await textSearch({textQuery: name, pageSize: 1, locationBias: {circle: {center: mine.query.locationBias.circle.center, radius: 5000}}}, FIELDS);
+  const x = d.places?.[0];
+  if (!x) return status(`Google couldn't find "${name}" near here.`, true);
+  if (mine !== trip) return;
+  let r = results.find(r => r.p.id === x.id);
+  const found = !!r;
+  if (!r) {
+    r = {p: norm(x), t: mine.pts.map(() => null), added: true};
+    if (mine.mode === 'TRANSIT') await tflTimes([r], mine);
+    await googleTimes([r], mine);
+    if (mine !== trip) return;
+    results.push(r);
+  }
+  render();
+  if (r.why.length && !showHidden) { showHidden = true; render(); }
+  const type = r.p.primaryTypeDisplayName?.text;
+  const intro = found ? `${r.p.displayName} was already in the results.`
+    : `${r.p.displayName} wasn't in Google's results for "${mine.query.textQuery}"${type ? ` (Google files it as: ${type})` : ''}, so it's added now.`;
+  status(intro + (r.why.length ? ` It's hidden because: ${r.why.join(', ')}.` : ' It matches your filters.'), false, true);
+  const el = document.querySelector(`#list .card[data-i="${cards.indexOf(r)}"]`);
+  if (el) { document.querySelectorAll('.card').forEach(c => c.classList.toggle('sel', c === el)); el.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+  map.panTo(r.p.location);
+});
+$('findName').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) $('findGo').click(); };
 
 // ---- Best of: rank every place in the area by trusted score ----
 $('goBest').onclick = () => {
@@ -771,6 +809,7 @@ function render() {
   $('fairBtn').hidden = searched.length < 2;
   $('mentionsBtn').hidden = !ws.length;
   $('more').hidden = !nextToken;
+  $('findDeck').hidden = !searched.length;
   if (!searched.length) { $('list').innerHTML = ''; clearMap(); return; }
 
   const need = [...document.querySelectorAll('.chip.on[data-k]')].map(c => c.dataset.k);
@@ -788,6 +827,7 @@ function render() {
     if (p.price != null && p.price > maxPrice) r.why.push('pricier than your max');
     need.forEach(k => has(p, k) || r.why.push(`no sign of ${amenityName(k)}`));
     if (on($('kwOnly')) && ws.length && !r.m.length) r.why.push("reviews don't mention your words");
+    if (on($('open')) && p.currentOpeningHours?.openNow === false) r.why.push('closed right now');
     const ok = r.t.filter(x => x != null);
     r.total = ok.reduce((a, b) => a + b, 0); r.fair = ok.length ? Math.max(...ok) - Math.min(...ok) : 0;
   });
@@ -826,7 +866,7 @@ function render() {
           <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags">${pickBtn(p)}<span class="tag">Score ${p.score.toFixed(2)}</span>${amen}${has(p, 'outdoorSeating') && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 && !off ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="tags">${pickBtn(p)}${r.added ? '<span class="tag">Added by you</span>' : ''}<span class="tag">Score ${p.score.toFixed(2)}</span>${amen}${has(p, 'outdoorSeating') && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 && !off ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
         <div class="track"><div class="fill" style="width:${(r.t[j] ?? 0) / maxBar * 100}%;background:${o.color}"></div></div>
         <span class="val">${r.t[j] ?? '–'} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
@@ -835,7 +875,7 @@ function render() {
   };
   // Why the rest are hidden, counted by reason, so a missing favourite is easy to explain
   const counts = {};
-  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews'); counts[key] = (counts[key] || 0) + 1; }));
+  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/ \(.*\)$/, '').replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews'); counts[key] = (counts[key] || 0) + 1; }));
   const hiddenBar = !hidden.length ? '' : `<div class="hiddenbar"><span class="addr">${hidden.length} hidden: ${esc(Object.entries(counts).map(([w, n]) => `${n} ${w}`).join(' · '))}</span>
     <button id="toggleHidden">${showHidden ? 'Hide them again' : `Show the ${hidden.length} hidden places`}</button></div>`;
   $('list').innerHTML = (shown.length ? shown.map(card).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>')
@@ -1004,7 +1044,7 @@ function status(t, err, pop) {
   const toast = $('toast');
   toast.textContent = t; toast.classList.toggle('err', !!err); toast.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), err ? 6000 : 3500);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), Math.max(err ? 6000 : 3500, t.length * 70));
 }
 $('toast').onclick = () => $('toast').classList.remove('show');
 refresh();
