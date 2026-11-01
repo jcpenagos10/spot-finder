@@ -95,6 +95,9 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .tags:empty{display:none}
 .tag{font-size:12px;line-height:16px;padding:2px 6px;border-radius:8px;background:var(--surface-dim);color:var(--on-variant)}
+.card.off{opacity:.72;border-style:dashed}
+.why{font-size:12px;line-height:16px;color:var(--warn-fg);font-weight:500}
+.hiddenbar{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;background:var(--surface-dim)}
 .warn{font-size:12px;line-height:16px;padding:4px 8px;border-radius:8px;background:var(--warn-bg);color:var(--warn-fg)}
 .bars{background:var(--surface-dim);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:13px}
 .track{height:6px;background:var(--on-low);border-radius:999px;overflow:hidden}
@@ -269,7 +272,7 @@ const AMENITIES = [['goodForWatchingSports', 'Sports on TV'], ['outdoorSeating',
 const PRICE = {PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4};
 const BASIC = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri', 'priceLevel'];
 const mask = fs => fs.map(f => 'places.' + f).join(',') + ',nextPageToken';
-const FIELDS = mask([...BASIC, 'reviews', ...AMENITIES.map(a => a[0])]);
+const FIELDS = mask([...BASIC, 'reviews', 'editorialSummary', ...AMENITIES.map(a => a[0])]); // summary + reviews: clues when Google's yes/no is blank
 const BEST_FIELDS = mask([...BASIC, 'reviews', 'editorialSummary']); // reviews: to check a place actually mentions the dish
 // Trusted score: every place starts with 200 sceptical 4.0★ reviews and must earn its way up with real ones
 const PRIOR_REVIEWS = 200, PRIOR_RATING = 4.0;
@@ -582,7 +585,7 @@ function renderBest(fitMap) { // fitMap: zoom to the results (not on every slide
   clearMap();
   if (!best) { $('list').innerHTML = ''; return status('Pick what you want and an area, then Find the best.'); }
   const top = best.list.slice(0, +pick('topn'));
-  shown = top.map(p => ({p}));
+  cards = shown = top.map(p => ({p}));
   $('crawlDeck').hidden = best.list.length < 3;
   if (crawl) drawCrawl(fitMap);
   else {
@@ -710,10 +713,11 @@ $('kw').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
 
 $('list').onclick = e => {
   const c = e.target.closest('.card');
+  if (e.target.id === 'toggleHidden') { showHidden = !showHidden; return render(); }
   if (!c || e.target.closest('a')) return;
-  if (e.target.closest('.pick')) return togglePick(shown[c.dataset.i].p);
+  if (e.target.closest('.pick')) return togglePick(cards[c.dataset.i].p);
   document.querySelectorAll('.card').forEach(x => x.classList.toggle('sel', x === c));
-  map.panTo(shown[c.dataset.i].p.location);
+  map.panTo(cards[c.dataset.i].p.location);
   map.setZoom(16);
 };
 
@@ -737,6 +741,28 @@ const SORT = {
   mentions: r => -r.m.length * 1e6 + SORT.best(r),
 };
 
+// Google's yes/no amenity fields are often just blank (a pub full of screens with goodForWatchingSports unset),
+// so a filter also accepts places whose Google summary, name or top reviews mention the thing.
+const CLUES = {
+  goodForWatchingSports: /\b(screens?|tvs?|televisions?|projectors?|sports?|football|soccer|rugby|premier league|champions league|six nations|darts|f1|the (game|match)|games? on)\b/i,
+  outdoorSeating: /\b(beer garden|gardens?|terraces?|outdoors?|outside|patio|al fresco|rooftop|courtyard)\b/i,
+  servesBeer: /\b(beers?|ales?|ipas?|pints?|lagers?|craft|brew(ery|ing|dog)?|taps?)\b/i,
+  servesWine: /\bwines?\b/i,
+  servesVegetarianFood: /\b(vegetarian|veggie|vegan|plant[- ]based)\b/i,
+  liveMusic: /\b(live music|live bands?|gigs?|djs?|jazz|open mic|acoustic)\b/i,
+  goodForGroups: /\b(groups?|big table|large party|birthday|work drinks|parties)\b/i,
+  reservable: /\b(book(ed|ing)?|reservations?|reserved?)\b/i,
+  allowsDogs: /\b(dogs?|dog[- ]friendly|pups?|puppy)\b/i,
+};
+// 'yes' = Google says so, 'said' = mentioned in its summary/reviews, '' = no sign of it
+function has(p, k) {
+  if (p[k] === true) return 'yes';
+  p.text ??= [p.displayName, p.editorialSummary?.text || '', ...p.reviews.map(v => v.text)].join(' \n ');
+  return CLUES[k]?.test(p.text) ? 'said' : '';
+}
+const amenityName = k => AMENITIES.find(a => a[0] === k)[1];
+let showHidden = false, cards = []; // cards: what the list shows (matches, then hidden ones if asked), for taps
+
 function render() {
   $('timeV').textContent = $('time').value + ' min';
   $('ratingV').textContent = (+$('rating').value).toFixed(1) + ' ★';
@@ -748,16 +774,25 @@ function render() {
   if (!searched.length) { $('list').innerHTML = ''; clearMap(); return; }
 
   const need = [...document.querySelectorAll('.chip.on[data-k]')].map(c => c.dataset.k);
-  const maxPrice = +pick('price');
+  const maxPrice = +pick('price'), maxT = +$('time').value, minR = +$('rating').value, minN = +$('reviews').value;
   setScores(results.map(r => r.p));
-  results.forEach(r => r.m = ws.length ? r.p.reviews.filter(v => ws.some(w => v.text.toLowerCase().includes(w))) : []);
-  shown = results.filter(({p, t, m}) => t.every(x => x != null && x <= +$('time').value)
-    && (p.rating ?? 0) >= +$('rating').value
-    && (p.userRatingCount ?? 0) >= +$('reviews').value
-    && (p.price == null || p.price <= maxPrice)
-    && need.every(k => p[k])
-    && (!on($('kwOnly')) || !ws.length || m.length));
-  shown.forEach(r => { r.total = r.t.reduce((a, b) => a + b, 0); r.fair = Math.max(...r.t) - Math.min(...r.t); });
+  results.forEach(r => {
+    const p = r.p;
+    r.m = ws.length ? p.reviews.filter(v => ws.some(w => v.text.toLowerCase().includes(w))) : [];
+    // Every reason this place is filtered out (empty = it matches)
+    r.why = [];
+    if (r.t.some(x => x == null)) r.why.push('no route found');
+    else if (r.t.some(x => x > maxT)) r.why.push(`${Math.max(...r.t)} min away`);
+    if ((p.rating ?? 0) < minR) r.why.push(`rated ${p.rating?.toFixed(1) ?? 'nothing'} (under ${minR.toFixed(1)}★)`);
+    if ((p.userRatingCount ?? 0) < minN) r.why.push(`only ${p.userRatingCount ?? 0} reviews`);
+    if (p.price != null && p.price > maxPrice) r.why.push('pricier than your max');
+    need.forEach(k => has(p, k) || r.why.push(`no sign of ${amenityName(k)}`));
+    if (on($('kwOnly')) && ws.length && !r.m.length) r.why.push("reviews don't mention your words");
+    const ok = r.t.filter(x => x != null);
+    r.total = ok.reduce((a, b) => a + b, 0); r.fair = ok.length ? Math.max(...ok) - Math.min(...ok) : 0;
+  });
+  shown = results.filter(r => !r.why.length);
+  const hidden = results.filter(r => r.why.length).sort((a, b) => a.why.length - b.why.length || SORT.best(a) - SORT.best(b));
   let k = pick('sort');
   if ((k === 'fair' && searched.length < 2) || (k === 'mentions' && !ws.length)) k = 'best';
   shown.sort((a, b) => SORT[k](a) - SORT[k](b) || a.total - b.total);
@@ -771,28 +806,40 @@ function render() {
   markers = shown.map((r, i) => new Marker({map, position: r.p.location, title: r.p.displayName,
     content: new Pin({glyph: String(i + 1)}).element}));
 
-  const maxBar = Math.max(1, ...shown.flatMap(r => r.t));
-  $('list').innerHTML = shown.length ? shown.map((r, i) => {
-    const p = r.p;
+  if (!hidden.length) showHidden = false;
+  cards = showHidden ? [...shown, ...hidden] : shown;
+  const maxBar = Math.max(1, ...cards.flatMap(r => r.t.filter(x => x != null)));
+  const card = (r, i) => {
+    const p = r.p, off = r.why.length;
     const warns = [...new Set(r.lines || [])].filter(id => lineStatus[id]).map(id => `<div class="warn">⚠ ${esc(lineStatus[id])}</div>`).join('');
     const quotes = !ws.length ? '' : r.m.length
       ? `<div class="quotes"><small>${r.m.length} of ${p.reviews.length} top reviews mention it</small>${r.m.slice(0, 2).map(v =>
           `<blockquote>“${snippet(v.text, ws)}” <cite>— ${esc(v.author)}, ${esc(v.when)}</cite></blockquote>`).join('')}</div>`
       : `<div class="quotes"><small>${p.reviews.length ? `None of the ${p.reviews.length} top reviews mention it` : 'No reviews to check'}</small></div>`;
+    const amen = AMENITIES.map(([a, n]) => [has(p, a), n]).filter(([h]) => h)
+      .map(([h, n]) => `<span class="tag"${h === 'said' ? ' title="Not in Google\'s details, but its summary or reviews mention it"' : ''}>${n}${h === 'said' ? ' (from reviews)' : ''}</span>`).join('');
     return `
-    <div class="card" data-i="${i}">
+    <div class="card${off ? ' off' : ''}" data-i="${i}">
+      ${off ? `<div class="why">Hidden: ${esc(r.why.join(' · '))}</div>` : ''}
       <div class="card-top">
-        <div><a href="${esc(p.googleMapsUri)}" target="_blank" rel="noopener">${i + 1}. ${esc(p.displayName)}</a>
+        <div><a href="${esc(p.googleMapsUri)}" target="_blank" rel="noopener">${off ? '' : i + 1 + '. '}${esc(p.displayName)}</a>
           <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
-      <div class="tags">${pickBtn(p)}<span class="tag">Score ${p.score.toFixed(2)}</span>${AMENITIES.filter(([a]) => p[a]).map(([, n]) => `<span class="tag">${n}</span>`).join('')}${p.outdoorSeating && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
+      <div class="tags">${pickBtn(p)}<span class="tag">Score ${p.score.toFixed(2)}</span>${amen}${has(p, 'outdoorSeating') && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 && !off ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
       <div class="bars">${searched.map((o, j) => `<span>${o.name}</span>
-        <div class="track"><div class="fill" style="width:${r.t[j] / maxBar * 100}%;background:${o.color}"></div></div>
-        <span class="val">${r.t[j]} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
+        <div class="track"><div class="fill" style="width:${(r.t[j] ?? 0) / maxBar * 100}%;background:${o.color}"></div></div>
+        <span class="val">${r.t[j] ?? '–'} min</span>${r.route?.[j] ? `<span class="route">${esc(r.route[j])}</span>` : ''}`).join('')}</div>
       ${warns}${quotes}
     </div>`;
-  }).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>';
+  };
+  // Why the rest are hidden, counted by reason, so a missing favourite is easy to explain
+  const counts = {};
+  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews'); counts[key] = (counts[key] || 0) + 1; }));
+  const hiddenBar = !hidden.length ? '' : `<div class="hiddenbar"><span class="addr">${hidden.length} hidden: ${esc(Object.entries(counts).map(([w, n]) => `${n} ${w}`).join(' · '))}</span>
+    <button id="toggleHidden">${showHidden ? 'Hide them again' : `Show the ${hidden.length} hidden places`}</button></div>`;
+  $('list').innerHTML = (shown.length ? shown.map(card).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>')
+    + hiddenBar + (showHidden ? hidden.map((r, j) => card(r, shown.length + j)).join('') : '');
 
   const src = viaTfl ? ` Transit times from TfL${viaTfl < results.length * searched.length ? ' (Google where TfL had no route)' : ''}.` : '';
   status(`Found ${results.length} places, ${shown.length} match your filters.${src} Raised the travel time? Search again to look further out.`);
