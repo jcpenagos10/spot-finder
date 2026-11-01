@@ -9,6 +9,7 @@ Uses it on iPhone and Mac. Non-technical: explain steps click by click, in plain
 ## How it's built
 - Everything is in `index.html` (HTML + CSS + vanilla JS, no build step, no dependencies). Push to `main` and GitHub Pages rebuilds in ~1 min.
 - `manifest.webmanifest` + `icon-180.png` / `icon-512.png`: the "Add to Home Screen" app name and icon.
+- A Home Screen app on iPhone has its own localStorage (separate from Safari). Settings → "Copy setup for Home Screen" copies a `spotfinder-setup:` code (Google key, TfL key, vote name); the key box's "Paste setup" reads it from the clipboard. Works across Apple devices via Universal Clipboard.
 - All network calls go through `get()` (fetch with a time limit). `status(text, err, pop)` writes the status line and, when it's off screen, pops up a bottom toast for errors (or `pop`).
 - iPhone: text inputs must stay ≥16px (smaller makes Safari zoom in); the phone layout has a sticky map, and `scroll-margin-top` keeps scrolled-to sections below it.
 - Check a deploy: `gh api repos/jcpenagos10/spot-finder/pages/builds/latest --jq .status` → `built`.
@@ -32,7 +33,7 @@ Search tab (two origins + fairness sort, filters, review keyword highlights, pri
 In the browser, stub the globals `map`, `Marker`, `Pin`, `google.maps`, `textSearch`, `googleTimes`, set `origins[0].ll`, then click buttons. TfL / weather / fixtures / ntfy work for real.
 
 ## Ideas not built yet
-AI "ask the reviews", plan-for-later time picker, 3+ people, a one-tap share link carrying the Google key (`#key=`) for friends.
+AI "ask the reviews", plan-for-later time picker, 3+ people.
 
 ## Sibling project
 `leave-bot/` (git-ignored here, its own private repo jcpenagos10/leave-now-bot): the "Leave Now" Telegram transit bot. See `leave-bot/CLAUDE.md`.

@@ -145,9 +145,11 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
   </div>
 
   <div id="keybox" class="deck" hidden>
-    <span>Paste your Google Maps API key. It's saved only on this device.</span>
-    <input id="key" type="text" placeholder="AIza…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
-    <button id="savekey" class="primary">Save key</button>
+    <span id="keyHelp">Paste your Google Maps API key. It's saved only on this device.</span>
+    <span id="homeHelp" class="addr" hidden>Set up already in Safari? There, open <b>Settings → Copy setup for Home Screen</b>, then come back here and tap <b>Paste setup</b>.</span>
+    <button id="pasteSetup" class="primary">Paste setup</button>
+    <input id="key" type="text" placeholder="AIza… or a setup code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+    <button id="savekey">Save key</button>
   </div>
 
   <div class="seg" id="tab"><button data-v="search" class="on">Search</button><button data-v="best">Best of</button></div>
@@ -244,6 +246,8 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
     <label class="field">TfL API key (optional). Transit times in London come from TfL's Journey Planner; a key lets it handle more searches.
       <input id="tflkey" type="text" placeholder="Paste your TfL app key" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done"></label>
     <button id="savetfl">Save TfL key</button>
+    <span class="addr">Added Spot Finder to your Home Screen? It keeps its own storage, so copy your keys and name across once: tap this, then open the Home Screen app and tap <b>Paste setup</b>. The code includes your Google key, so don't post it in a group chat.</span>
+    <button id="copySetup">Copy setup for Home Screen</button>
     <a href="#" id="resetkey">Change Google API key</a>
   </details>
 </aside>
@@ -284,7 +288,47 @@ $('savetfl').onclick = () => {
   $('tflkey').value = '';
   $('tflkey').placeholder = TFL ? 'Saved ✓ (paste a new one to replace)' : 'Paste your TfL app key';
 };
-$('savekey').onclick = () => { try { localStorage.setItem('gmapsKey', $('key').value.trim()); } catch {} location.reload(); };
+// Setup code: moves the Google key, TfL key and vote name from Safari to the Home Screen app
+// (iPhone gives a Home Screen app its own storage). Copy in one, paste in the other.
+const SETUP = 'spotfinder-setup:';
+function readSetup(text) {
+  text = (text || '').trim();
+  if (!text.startsWith(SETUP)) return /^AIza[\w-]{20,}$/.test(text) ? {g: text} : null; // or just a bare Google key
+  try { const s = JSON.parse(decodeURIComponent(text.slice(SETUP.length))); return typeof s.g === 'string' && s.g ? s : null; } catch { return null; }
+}
+function saveSetup(s) {
+  try {
+    localStorage.setItem('gmapsKey', s.g.trim());
+    if (s.t) localStorage.setItem('tflKey', String(s.t));
+    if (s.n && !localStorage.getItem('voterName')) localStorage.setItem('voterName', String(s.n).slice(0, 30));
+  } catch {}
+  location.reload();
+}
+$('savekey').onclick = () => {
+  const v = $('key').value.trim();
+  if (!v) return status('Paste your Google Maps API key (or a setup code) first.', true);
+  saveSetup(readSetup(v) || {g: v});
+};
+$('pasteSetup').onclick = async () => {
+  let text;
+  try { text = await navigator.clipboard.readText(); }
+  catch { $('key').focus(); return status('Tap the box, choose Paste, then tap Save key.', true); }
+  const s = readSetup(text);
+  if (s) return saveSetup(s);
+  status("There's no setup code copied. In Safari, open Settings → Copy setup for Home Screen, then try again.", true);
+};
+$('copySetup').onclick = async () => {
+  if (!KEY) return status('Add your Google key first.', true);
+  let name = ''; try { name = localStorage.getItem('voterName') || ''; } catch {}
+  const code = SETUP + encodeURIComponent(JSON.stringify({g: KEY, t: TFL || '', n: name}));
+  try { await navigator.clipboard.writeText(code); status('Copied. Now open Spot Finder from your Home Screen and tap Paste setup.', false, true); }
+  catch { prompt('Copy this code, then paste it in the Home Screen app:', code); }
+};
+// Opened from the Home Screen with no key yet: point to the copy-from-Safari route
+const homeApp = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+$('homeHelp').hidden = !homeApp;
+if (homeApp) $('keyHelp').textContent = 'This Home Screen app has its own storage, so it needs your key once.';
+else { $('pasteSetup').classList.remove('primary'); $('savekey').classList.add('primary'); $('keybox').append($('pasteSetup')); } // in Safari, typing the key comes first
 $('resetkey').onclick = e => { e.preventDefault(); try { localStorage.removeItem('gmapsKey'); } catch {} location.reload(); };
 
 if (!KEY) { $('keybox').hidden = false; $('map').hidden = true; document.body.style.display = 'block'; }
