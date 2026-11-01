@@ -92,6 +92,9 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .addr{color:var(--on-variant);font-size:13px}
 .badge{background:var(--accent-container);color:var(--accent);border-radius:999px;padding:2px 8px;font-weight:600;font-size:13px;white-space:nowrap}
 .badge small{font-weight:400;opacity:.8}
+.inrow{display:flex;gap:8px}
+.inrow input{flex:1;min-width:0}
+.inrow button{min-height:44px;border-radius:14px;padding:0 12px;flex:0 0 auto}
 .tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .tags:empty{display:none}
 .tag{font-size:12px;line-height:16px;padding:2px 6px;border-radius:8px;background:var(--surface-dim);color:var(--on-variant)}
@@ -164,7 +167,7 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
       <button class="on">Burgers</button><button>Pizza</button><button>Tacos</button><button>Ramen</button><button>Sushi</button><button>Brunch</button><button>Pubs</button><button>Cocktails</button>
     </div>
     <label class="field"><span><span class="dot" style="background:#2575fc"></span><span data-tab="search">You start from</span><span data-tab="best">Around</span></span>
-      <input id="from0" type="text" placeholder="Address, or tap the map" enterkeyhint="search" autocomplete="street-address"></label>
+      <span class="inrow"><input id="from0" type="text" placeholder="Address, or tap the map" enterkeyhint="search" autocomplete="street-address"><button id="locate" type="button" title="Use my location">📍 Me</button></span></label>
     <label class="field" data-tab="search"><span><span class="dot" style="background:#c84288"></span>Friend starts from (optional)</span>
       <input id="from1" type="text" placeholder="Leave empty if it's just you" enterkeyhint="search" autocomplete="off"></label>
     <div class="seg" id="mode" data-tab="search">
@@ -188,11 +191,9 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
       <input id="rating" type="range" min="0" max="5" step="0.1" value="4.2"></div>
     <div><div class="top"><span>Min reviews</span><span class="val" id="reviewsV"></span></div>
       <input id="reviews" type="range" min="0" max="2000" step="50" value="100"></div>
-    <div class="field">Max price
-      <div class="seg" id="price">
-        <button data-v="9" class="on">Any</button><button data-v="1">£</button><button data-v="2">££</button><button data-v="3">£££</button>
-      </div>
-    </div>
+    <div><div class="top"><span>Max spend per person</span><span class="val" id="priceV"></span></div>
+      <input id="price" type="range" min="5" max="105" step="5" value="105">
+      <span class="addr">From Google's price per person, else £/££/£££, else prices in reviews (good for barbers). Places with no price info always show.</span></div>
     <div class="row" id="amen"></div>
     <label class="field">Reviews mention (comma-separated)
       <input id="kw" type="text" placeholder="e.g. screens, projector, wings" enterkeyhint="done" autocapitalize="off"></label>
@@ -276,7 +277,7 @@ const AMENITIES = [['goodForWatchingSports', 'Sports on TV'], ['outdoorSeating',
   ['servesWine', 'Wine'], ['servesVegetarianFood', 'Vegetarian'], ['liveMusic', 'Live music'], ['goodForGroups', 'Groups'],
   ['reservable', 'Reservations'], ['allowsDogs', 'Dogs OK']];
 const PRICE = {PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4};
-const BASIC = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri', 'priceLevel'];
+const BASIC = ['id', 'displayName', 'location', 'formattedAddress', 'rating', 'userRatingCount', 'googleMapsUri', 'priceLevel', 'priceRange'];
 const mask = fs => fs.map(f => 'places.' + f).join(',') + ',nextPageToken';
 const FIELDS = mask([...BASIC, 'reviews', 'editorialSummary', 'primaryTypeDisplayName', 'currentOpeningHours.openNow', ...AMENITIES.map(a => a[0])]); // summary + reviews: clues when Google's yes/no is blank
 const BEST_FIELDS = mask([...BASIC, 'reviews', 'editorialSummary']); // reviews: to check a place actually mentions the dish
@@ -355,9 +356,32 @@ window.init = async () => {
   ({AdvancedMarkerElement: Marker, PinElement: Pin} = await google.maps.importLibrary('marker'));
   map = new Map($('map'), {center: {lat: 51.5246, lng: -0.1605}, zoom: 13, mapId: 'DEMO_MAP_ID', disableDefaultUI: true, zoomControl: true});
   map.addListener('click', e => setOrigin(0, e.latLng.toJSON(), '(map pin)'));
-  // only fill the start point if it's still empty: never overwrite an address being typed
-  navigator.geolocation?.getCurrentPosition(p => origins[0].ll || $('from0').value.trim() || setOrigin(0, {lat: p.coords.latitude, lng: p.coords.longitude}, '(your location)'));
+  locateMe(true);
 };
+
+// 📍 Me: put the start point where the phone is. auto = the quiet try when the map opens
+// (never overwrites an address being typed, no error if location is off).
+function locateMe(auto) {
+  const b = $('locate');
+  if (!navigator.geolocation) return auto || status("This browser can't share your location. Type an address or tap the map.", true);
+  if (!auto) { if (!map) return status('Map not loaded yet. Check your API key.', true); b.disabled = true; b.textContent = '📍 …'; }
+  const done = () => { b.disabled = false; b.textContent = '📍 Me'; };
+  navigator.geolocation.getCurrentPosition(pos => {
+    done();
+    if (auto && (origins[0].ll || $('from0').value.trim())) return;
+    const ll = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+    setOrigin(0, ll, '(your location)');
+    map.panTo(ll);
+    if (!auto) status(`Start point set to where you are (within about ${Math.round(pos.coords.accuracy)} m).`, false, true);
+  }, err => {
+    done();
+    if (auto) return;
+    status(err.code === 1
+      ? 'Location is switched off for this site. On iPhone: Settings → Privacy & Security → Location Services → Safari Websites → "While Using the App". Then tap 📍 Me again.'
+      : "Couldn't get your location just now. Try again, type an address, or tap the map.", true);
+  }, {enableHighAccuracy: true, timeout: 12000, maximumAge: 60000});
+}
+$('locate').onclick = e => { e.preventDefault(); locateMe(false); };
 
 // Places API (New) Text Search over REST: unlike the Maps JS version it pages up to 60 results
 async function textSearch(body, fieldMask) {
@@ -371,13 +395,42 @@ async function textSearch(body, fieldMask) {
   return d;
 }
 
-const norm = x => ({...x,
-  displayName: x.displayName?.text ?? '',
-  location: {lat: x.location.latitude, lng: x.location.longitude},
-  price: PRICE[x.priceLevel],
-  reviews: (x.reviews || []).map(v => ({text: v.text?.text || v.originalText?.text || '',
-    author: v.authorAttribution?.displayName || 'A Google user', when: v.relativePublishTimeDescription || ''})),
-});
+const norm = x => {
+  const p = {...x,
+    displayName: x.displayName?.text ?? '',
+    location: {lat: x.location.latitude, lng: x.location.longitude},
+    price: PRICE[x.priceLevel],
+    reviews: (x.reviews || []).map(v => ({text: v.text?.text || v.originalText?.text || '',
+      author: v.authorAttribution?.displayName || 'A Google user', when: v.relativePublishTimeDescription || ''})),
+  };
+  p.cost = costOf(p);
+  return p;
+};
+
+// What a visit roughly costs per person, best source first:
+// 1. Google's price range ("£20–30"), 2. the £/££/£££ level, 3. £ amounts in the top reviews ("£15 for a fade";
+// last because a review's "£60 for two" is noisy, but it's often all there is for barbers, salons…)
+const LEVEL_COST = [[0, 0], [5, 20], [20, 40], [40, 80], [80, null]]; // ponytail: rough London £ per head for each level
+function costOf(p) {
+  const r = p.priceRange, n = m => m?.units != null ? +m.units : null;
+  if (r && n(r.startPrice) != null) return {lo: n(r.startPrice), hi: n(r.endPrice), src: 'google', cur: r.startPrice.currencyCode};
+  const amounts = p.reviews.flatMap(v => [...v.text.matchAll(/£\s?(\d{1,3}(?:\.\d{1,2})?)(?![\d,])|\b(\d{1,3})\s?(?:quid|pounds)\b/gi)]
+    .map(m => +(m[1] ?? m[2]))).filter(a => a >= 2 && a <= 300).sort((a, b) => a - b);
+  if (p.price != null) { const [lo, hi] = LEVEL_COST[p.price]; return {lo, hi, src: 'level'}; }
+  if (amounts.length) return {lo: amounts[0], hi: amounts.at(-1), src: 'reviews', mid: amounts[amounts.length >> 1]};
+  return null;
+}
+// One number to compare with the budget: middle of the range (open-ended "£100+" uses its start)
+const typical = c => c.src === 'reviews' ? c.mid : c.hi != null ? (c.lo + c.hi) / 2 : c.lo;
+const money = v => '£' + Math.round(v);
+function priceText(p) {
+  const c = p.cost;
+  if (!c) return '';
+  if (c.src === 'level') return p.price ? '£'.repeat(p.price) : 'Free';
+  const sym = c.cur && c.cur !== 'GBP' ? c.cur + ' ' : '£';
+  const range = c.hi != null && c.hi !== c.lo ? `${sym}${c.lo}–${c.hi}` : c.hi == null && c.src === 'google' ? `${sym}${c.lo}+` : `${sym}${c.lo}`;
+  return c.src === 'google' ? `${range} pp` : `reviews mention ${range}`;
+}
 
 // Bayesian average: few reviews keep a place near 4.0, many let its own rating show
 function setScores(ps) {
@@ -634,7 +687,7 @@ function renderBest(fitMap) { // fitMap: zoom to the results (not on every slide
     <div class="card" data-i="${i}">
       <div class="card-top">
         <div><a href="${esc(p.googleMapsUri)}" target="_blank" rel="noopener">${i + 1}. ${esc(p.displayName)}</a>
-          <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
+          <div class="addr">${p.cost ? esc(priceText(p)) + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">${p.score.toFixed(2)}</span>
       </div>
       <div class="row">${pickBtn(p)}</div>
@@ -805,6 +858,7 @@ function render() {
   $('timeV').textContent = $('time').value + ' min';
   $('ratingV').textContent = (+$('rating').value).toFixed(1) + ' ★';
   $('reviewsV').textContent = $('reviews').value;
+  $('priceV').textContent = +$('price').value > 100 ? 'Any' : '£' + $('price').value;
   const ws = words();
   $('fairBtn').hidden = searched.length < 2;
   $('mentionsBtn').hidden = !ws.length;
@@ -813,7 +867,7 @@ function render() {
   if (!searched.length) { $('list').innerHTML = ''; clearMap(); return; }
 
   const need = [...document.querySelectorAll('.chip.on[data-k]')].map(c => c.dataset.k);
-  const maxPrice = +pick('price'), maxT = +$('time').value, minR = +$('rating').value, minN = +$('reviews').value;
+  const maxPrice = +$('price').value > 100 ? 0 : +$('price').value, maxT = +$('time').value, minR = +$('rating').value, minN = +$('reviews').value;
   setScores(results.map(r => r.p));
   results.forEach(r => {
     const p = r.p;
@@ -824,7 +878,7 @@ function render() {
     else if (r.t.some(x => x > maxT)) r.why.push(`${Math.max(...r.t)} min away`);
     if ((p.rating ?? 0) < minR) r.why.push(`rated ${p.rating?.toFixed(1) ?? 'nothing'} (under ${minR.toFixed(1)}★)`);
     if ((p.userRatingCount ?? 0) < minN) r.why.push(`only ${p.userRatingCount ?? 0} reviews`);
-    if (p.price != null && p.price > maxPrice) r.why.push('pricier than your max');
+    if (maxPrice && p.cost && typical(p.cost) > maxPrice) r.why.push(`about ${money(typical(p.cost))} a head (over ${money(maxPrice)})`);
     need.forEach(k => has(p, k) || r.why.push(`no sign of ${amenityName(k)}`));
     if (on($('kwOnly')) && ws.length && !r.m.length) r.why.push("reviews don't mention your words");
     if (on($('open')) && p.currentOpeningHours?.openNow === false) r.why.push('closed right now');
@@ -863,7 +917,7 @@ function render() {
       ${off ? `<div class="why">Hidden: ${esc(r.why.join(' · '))}</div>` : ''}
       <div class="card-top">
         <div><a href="${esc(p.googleMapsUri)}" target="_blank" rel="noopener">${off ? '' : i + 1 + '. '}${esc(p.displayName)}</a>
-          <div class="addr">${p.price != null ? (p.price ? '£'.repeat(p.price) : 'Free') + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
+          <div class="addr">${p.cost ? esc(priceText(p)) + ' · ' : ''}${esc(p.formattedAddress)}</div></div>
         <span class="badge">★ ${p.rating?.toFixed(1) ?? '–'} <small>(${p.userRatingCount ?? 0})</small></span>
       </div>
       <div class="tags">${pickBtn(p)}${r.added ? '<span class="tag">Added by you</span>' : ''}<span class="tag">Score ${p.score.toFixed(2)}</span>${amen}${has(p, 'outdoorSeating') && wx ? `<span class="tag">${wxIcon(wxAt)} Outside at ${hour(wx.time[wxAt])}: ${wxWord(wxAt)}</span>` : ''}${searched.length > 1 && !off ? `<span class="tag">Difference ${r.fair} min</span>` : ''}</div>
@@ -875,7 +929,7 @@ function render() {
   };
   // Why the rest are hidden, counted by reason, so a missing favourite is easy to explain
   const counts = {};
-  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/ \(.*\)$/, '').replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews'); counts[key] = (counts[key] || 0) + 1; }));
+  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/ \(.*\)$/, '').replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews').replace(/^about £.*/, 'over budget'); counts[key] = (counts[key] || 0) + 1; }));
   const hiddenBar = !hidden.length ? '' : `<div class="hiddenbar"><span class="addr">${hidden.length} hidden: ${esc(Object.entries(counts).map(([w, n]) => `${n} ${w}`).join(' · '))}</span>
     <button id="toggleHidden">${showHidden ? 'Hide them again' : `Show the ${hidden.length} hidden places`}</button></div>`;
   $('list').innerHTML = (shown.length ? shown.map(card).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>')
