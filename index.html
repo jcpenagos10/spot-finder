@@ -47,6 +47,12 @@ aside{min-width:0;height:100vh;height:100dvh;overflow:auto;padding:16px;padding-
   #sort::-webkit-scrollbar{display:none}
   #sort button{flex:0 0 auto}
   .kpi b{font-size:16px}
+  #presets{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-right:-14px;padding-right:14px}
+  #presets::-webkit-scrollbar{display:none}
+  #presets button{flex:0 0 auto}
+  body.bigmap{--maph:calc(100svh - 72px)}
+  .mapbtn{display:block;margin:10px;min-height:40px;padding:0 14px;border:0;border-radius:999px;background:var(--surface-bright);color:var(--on-surface);
+    font:500 14px var(--sans);box-shadow:0 2px 8px rgba(0,0,0,.25)}
 }
 /* Bigger touch targets on phones */
 @media (pointer:coarse){
@@ -92,6 +98,10 @@ button.on{background:var(--accent-container);color:var(--accent);border-color:tr
 .addr{color:var(--on-variant);font-size:13px}
 .badge{background:var(--accent-container);color:var(--accent);border-radius:999px;padding:2px 8px;font-weight:600;font-size:13px;white-space:nowrap}
 .badge small{font-weight:400;opacity:.8}
+.presets button{min-height:32px;padding:0 12px;font-size:13px}
+@media (min-width:761px){.mapbtn{display:none}} /* phone-only button */
+.saved{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface-bright);border-radius:10px;padding:8px 12px}
+.saved .pick{flex:0 0 auto}
 .inrow{display:flex;gap:8px}
 .inrow input{flex:1;min-width:0}
 .inrow button{min-height:44px;border-radius:14px;padding:0 12px;flex:0 0 auto}
@@ -161,6 +171,7 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
   <div class="seg" id="tab"><button data-v="search" class="on">Search</button><button data-v="best">Best of</button></div>
 
   <div class="deck">
+    <div class="row presets" id="presets" data-tab="search"></div>
     <label class="field" data-tab="search">Looking for <input id="q" type="text" value="pub" enterkeyhint="search"></label>
     <label class="field" data-tab="best">Best what? <input id="bq" type="text" value="Burgers" enterkeyhint="search"></label>
     <div class="row" id="bchips" data-tab="best">
@@ -198,6 +209,7 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
     <label class="field">Reviews mention (comma-separated)
       <input id="kw" type="text" placeholder="e.g. screens, projector, wings" enterkeyhint="done" autocapitalize="off"></label>
     <div class="row"><button class="chip" id="kwOnly">Only places whose reviews mention it</button></div>
+    <div class="row"><button class="chip" id="favOnly">★ Saved places only</button><button class="chip" id="hideBeen">Hide places I've been</button></div>
   </div>
 
   <details class="deck" id="matchDeck" data-tab="search">
@@ -251,6 +263,11 @@ body.voteonly aside > :not(header, #voteBox){display:none!important}
     <input id="findName" type="text" placeholder="e.g. BrewDog" enterkeyhint="search">
     <button id="findGo">Check this place</button>
   </div>
+  <details class="deck" id="favDeck">
+    <summary>★ My saved places (<span id="favN">0</span>)</summary>
+    <span class="addr">Tap ☆ Save on any place to keep it here. Saved on this device.</span>
+    <div id="favList" class="quotes"></div>
+  </details>
   <details class="deck">
     <summary>Settings</summary>
     <label class="field">TfL API key (optional). Transit times in London come from TfL's Journey Planner; a key lets it handle more searches.
@@ -356,7 +373,36 @@ window.init = async () => {
   ({AdvancedMarkerElement: Marker, PinElement: Pin} = await google.maps.importLibrary('marker'));
   map = new Map($('map'), {center: {lat: 51.5246, lng: -0.1605}, zoom: 13, mapId: 'DEMO_MAP_ID', disableDefaultUI: true, zoomControl: true});
   map.addListener('click', e => setOrigin(0, e.latLng.toJSON(), '(map pin)'));
+  try { // phone only (CSS): make the map nearly full screen, and back
+    const {ControlPosition} = await google.maps.importLibrary('core');
+    const b = bigBtn = document.createElement('button');
+    b.className = 'mapbtn'; b.id = 'bigMap'; b.type = 'button'; b.textContent = '⤢ Bigger map';
+    b.onclick = () => bigMap(!document.body.classList.contains('bigmap'));
+    map.controls[ControlPosition.TOP_LEFT].push(b);
+  } catch {}
   locateMe(true);
+};
+
+let bigBtn;
+function bigMap(big) {
+  document.body.classList.toggle('bigmap', big);
+  const b = bigBtn;
+  if (b) b.textContent = big ? '☰ Show list' : '⤢ Bigger map';
+  map?.setOptions?.({gestureHandling: big ? 'greedy' : 'auto'}); // big map: one finger moves the map
+  if (big) scrollTo({top: 0});
+}
+// Tapping a numbered pin shows that place's card (and leaves the big map)
+function pinTap(i) {
+  bigMap(false);
+  const el = document.querySelector(`#list .card[data-i="${i}"]`);
+  if (!el) return;
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('sel', c === el));
+  el.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+const pin = (p, i, opts = {}) => {
+  const m = new Marker({map, position: p.location, title: p.displayName, gmpClickable: true, content: new Pin({glyph: String(i + 1), ...opts}).element});
+  m.addListener?.('click', () => pinTap(i));
+  return m;
 };
 
 // 📍 Me: put the start point where the phone is. auto = the quiet try when the map opens
@@ -681,7 +727,7 @@ function renderBest(fitMap) { // fitMap: zoom to the results (not on every slide
   $('crawlDeck').hidden = best.list.length < 3;
   if (crawl) drawCrawl(fitMap);
   else {
-    markers = top.map((p, i) => new Marker({map, position: p.location, title: p.displayName, content: new Pin({glyph: String(i + 1)}).element}));
+    markers = top.map((p, i) => pin(p, i));
     if (top.length && fitMap) fit([best.center, ...top.map(p => p.location)]);
   }
   $('list').innerHTML = top.length ? top.map((p, i) => `
@@ -767,6 +813,7 @@ function crawlHtml() {
 
 // ---- Controls ----
 function refresh(fitMap) {
+  savePrefs();
   const t = pick('tab');
   document.querySelectorAll('[data-tab]').forEach(el => el.hidden = el.dataset.tab !== t);
   if (t === 'best') { $('crawlDeck').hidden = !best || best.list.length < 3; renderBest(fitMap); }
@@ -807,7 +854,9 @@ $('list').onclick = e => {
   const c = e.target.closest('.card');
   if (e.target.id === 'toggleHidden') { showHidden = !showHidden; return render(); }
   if (!c || e.target.closest('a')) return;
-  if (e.target.closest('.pick')) return togglePick(cards[c.dataset.i].p);
+  if (e.target.closest('.fav')) return toggleFav(cards[c.dataset.i].p);
+  if (e.target.closest('.been')) return toggleBeen(cards[c.dataset.i].p);
+  if (e.target.closest('.vote')) return togglePick(cards[c.dataset.i].p);
   document.querySelectorAll('.card').forEach(x => x.classList.toggle('sel', x === c));
   map.panTo(cards[c.dataset.i].p.location);
   map.setZoom(16);
@@ -883,6 +932,8 @@ function render() {
     need.forEach(k => has(p, k) || r.why.push(`no sign of ${amenityName(k)}`));
     if (on($('kwOnly')) && ws.length && !r.m.length) r.why.push("reviews don't mention your words");
     if (on($('open')) && p.currentOpeningHours?.openNow === false) r.why.push('closed right now');
+    if (on($('favOnly')) && !favs.has(p.id)) r.why.push('not one of your saved places');
+    if (on($('hideBeen')) && been.has(p.id)) r.why.push("you've been here");
     const ok = r.t.filter(x => x != null);
     r.total = ok.reduce((a, b) => a + b, 0); r.fair = ok.length ? Math.max(...ok) - Math.min(...ok) : 0;
   });
@@ -898,8 +949,7 @@ function render() {
   $('kTop').textContent = top ? top.p.displayName : '–';
 
   clearMap();
-  markers = shown.map((r, i) => new Marker({map, position: r.p.location, title: r.p.displayName,
-    content: new Pin({glyph: String(i + 1)}).element}));
+  markers = shown.map((r, i) => pin(r.p, i));
 
   if (!hidden.length) showHidden = false;
   cards = showHidden ? [...shown, ...hidden] : shown;
@@ -931,7 +981,7 @@ function render() {
   };
   // Why the rest are hidden, counted by reason, so a missing favourite is easy to explain
   const counts = {};
-  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/ \(.*\)$/, '').replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews').replace(/^about £.*/, 'over budget'); counts[key] = (counts[key] || 0) + 1; }));
+  hidden.forEach(r => r.why.forEach(w => { const key = w.replace(/^not one of your saved places$/, 'not saved').replace(/ \(.*\)$/, '').replace(/^\d+ min away$/, 'too far').replace(/^rated .*/, 'rating too low').replace(/^only \d+ reviews$/, 'too few reviews').replace(/^about £.*/, 'over budget'); counts[key] = (counts[key] || 0) + 1; }));
   const hiddenBar = !hidden.length ? '' : `<div class="hiddenbar"><span class="addr">${hidden.length} hidden: ${esc(Object.entries(counts).map(([w, n]) => `${n} ${w}`).join(' · '))}</span>
     <button id="toggleHidden">${showHidden ? 'Hide them again' : `Show the ${hidden.length} hidden places`}</button></div>`;
   $('list').innerHTML = (shown.length ? shown.map(card).join('') : '<div class="empty">Nothing matches. Try a longer travel time, a lower rating or fewer filters.</div>')
@@ -1016,7 +1066,29 @@ $('fixtures').onclick = e => {
 };
 
 // ---- Group vote: options travel in the link, votes go through ntfy.sh (free, no account, kept ~12h) ----
-const pickBtn = p => `<button class="pick ${picks.has(p.id) ? 'on' : ''}">${picks.has(p.id) ? '✓ In the vote' : '+ Add to vote'}</button>`;
+const pickBtn = p => `<button class="pick vote ${picks.has(p.id) ? 'on' : ''}">${picks.has(p.id) ? '✓ In the vote' : '+ Add to vote'}</button>`
+  + `<button class="pick fav ${favs.has(p.id) ? 'on' : ''}">${favs.has(p.id) ? '★ Saved' : '☆ Save'}</button>`
+  + `<button class="pick been ${been.has(p.id) ? 'on' : ''}">${been.has(p.id) ? '✓ Been here' : 'Been here?'}</button>`;
+
+// ---- Saved places and "been here" (this device only) ----
+const favs = new Map(), been = new Set();
+try {
+  JSON.parse(localStorage.getItem('favs') || '[]').forEach(f => f?.id && favs.set(f.id, f));
+  JSON.parse(localStorage.getItem('been') || '[]').forEach(id => typeof id === 'string' && been.add(id));
+} catch {}
+const keepFavs = () => { try { localStorage.setItem('favs', JSON.stringify([...favs.values()])); localStorage.setItem('been', JSON.stringify([...been])); } catch {} };
+function toggleFav(p) {
+  if (favs.has(p.id)) favs.delete(p.id);
+  else favs.set(p.id, {id: p.id, name: p.displayName, addr: p.formattedAddress || '', uri: p.googleMapsUri || '', ll: p.location});
+  keepFavs(); renderFavs(); refresh();
+}
+function toggleBeen(p) { been.has(p.id) ? been.delete(p.id) : been.add(p.id); keepFavs(); refresh(); }
+function renderFavs() {
+  $('favN').textContent = favs.size;
+  $('favList').innerHTML = favs.size ? [...favs.values()].map(f => `<div class="saved"><span><a href="${esc(f.uri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(f.name)}&query_place_id=${encodeURIComponent(f.id)}`)}" target="_blank" rel="noopener"><b>${esc(f.name)}</b></a>${been.has(f.id) ? ' <small>✓ been</small>' : ''}<br><small class="addr">${esc(f.addr)}</small></span>
+    <button class="pick" data-unfav="${esc(f.id)}">Remove</button></div>`).join('') : '<span class="addr">Nothing saved yet.</span>';
+}
+$('favList').onclick = e => { const id = e.target.dataset?.unfav; if (id) { favs.delete(id); keepFavs(); renderFavs(); refresh(); } };
 function togglePick(p) {
   if (picks.has(p.id)) picks.delete(p.id);
   else if (picks.size >= 8) return status('A vote can have up to 8 places.', true);
@@ -1104,6 +1176,58 @@ function status(t, err, pop) {
   toastTimer = setTimeout(() => toast.classList.remove('show'), Math.max(err ? 6000 : 3500, t.length * 70));
 }
 $('toast').onclick = () => $('toast').classList.remove('show');
+
+// ---- One-tap presets: set the search word and filters, then search ----
+const PRESETS = [
+  {label: '🍺 Pub garden', q: 'pub with beer garden', chips: ['outdoorSeating']},
+  {label: '⚽ Watch sport', q: 'pub showing sports', chips: ['goodForWatchingSports']},
+  {label: '💸 Cheap eats', q: 'restaurant', price: 15, rating: 4.3},
+  {label: '🍷 Date night', q: 'romantic restaurant or wine bar', rating: 4.5, chips: ['reservable']},
+  {label: '🍳 Brunch', q: 'brunch', rating: 4.4},
+  {label: '☕ Coffee', q: 'coffee shop', rating: 4.5, reviews: 50},
+  {label: '✂️ Barber', q: 'barber', rating: 4.6, reviews: 50},
+];
+$('presets').innerHTML = PRESETS.map((x, i) => `<button data-p="${i}">${x.label}</button>`).join('');
+$('presets').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const x = PRESETS[b.dataset.p];
+  $('presets').querySelectorAll('button').forEach(y => y.classList.toggle('on', y === b));
+  $('q').value = x.q;
+  document.querySelectorAll('.chip[data-k]').forEach(c => c.classList.toggle('on', !!x.chips?.includes(c.dataset.k)));
+  $('price').value = x.price ?? 105; $('rating').value = x.rating ?? 4.2; $('reviews').value = x.reviews ?? 100;
+  $('kw').value = ''; $('kwOnly').classList.remove('on');
+  if (origins[0].ll || $('from0').value.trim()) $('go').click();
+  else { refresh(); status('Now set where you start (📍 Me, an address, or tap the map), then Search.', false, true); }
+};
+$('q').addEventListener('input', () => $('presets').querySelectorAll('button').forEach(y => y.classList.remove('on')));
+
+// ---- Remember settings between visits (this device only) ----
+const PREF_INPUTS = ['q', 'bq', 'time', 'rating', 'reviews', 'price', 'area', 'stops', 'gap'];
+const PREF_SEGS = ['tab', 'mode', 'sort', 'topn'];
+const PREF_CHIPS = () => [...document.querySelectorAll('.chip')].filter(c => c.id || c.dataset.k);
+const chipKey = c => c.id || 'k:' + c.dataset.k;
+let prefsReady = false;
+function savePrefs() {
+  if (!prefsReady) return;
+  const s = {in: {}, seg: {}, chips: PREF_CHIPS().filter(c => on(c)).map(chipKey)};
+  PREF_INPUTS.forEach(id => s.in[id] = $(id).value);
+  PREF_SEGS.forEach(id => s.seg[id] = pick(id));
+  try { localStorage.setItem('prefs', JSON.stringify(s)); } catch {}
+}
+function loadPrefs() {
+  let s; try { s = JSON.parse(localStorage.getItem('prefs')); } catch {}
+  if (s) {
+    PREF_INPUTS.forEach(id => { if (typeof s.in?.[id] === 'string') $(id).value = s.in[id]; });
+    PREF_SEGS.forEach(id => { const v = s.seg?.[id]; if (v && $(id).querySelector(`[data-v="${CSS.escape(v)}"]`)) $(id).querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); });
+    if (Array.isArray(s.chips)) PREF_CHIPS().forEach(c => c.classList.toggle('on', s.chips.includes(chipKey(c))));
+    $('bchips').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.textContent === $('bq').value));
+  }
+  prefsReady = true;
+}
+['q', 'bq'].forEach(id => $(id).addEventListener('change', savePrefs));
+loadPrefs();
+renderFavs();
 refresh();
 </script>
 </body>
